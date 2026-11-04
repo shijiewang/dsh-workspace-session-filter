@@ -61,8 +61,16 @@ dsh plugin --profile desktop add /absolute/path/to/dsh-workspace-session-filter
 dsh plugin --profile desktop remove @local/dsh-workspace-session-filter
 ```
 
-前提：`pnpm` 在 PATH 上；`desktop` profile 需要先启动过一次桌面应用（命令会检查
-`profiles/desktop/package.json` 是否存在），并且建议在应用完全退出后再执行装包操作。
+几点前提：
+
+- 桌面应用自带这条命令：`/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`
+  （应用里也可以把它装进 PATH；`which dsh` 找不到时直接用这个绝对路径）。它自带
+  pnpm，不依赖你 shell 里的 pnpm 版本。
+- `desktop` profile 需要先启动过一次桌面应用（命令会检查
+  `profiles/desktop/package.json`），并且建议在应用**完全退出**后再执行装包，避免和
+  运行中的实例抢 profile 锁。
+- `add github:...` 会把依赖锁在解析到的 commit 上；想跟进更新就再 add 一次，想回到
+  本仓库改文件即时生效的开发状态，用绝对路径再 add 一次覆盖即可。
 
 装好后：
 
