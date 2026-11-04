@@ -1,0 +1,73 @@
+# 工作区会话筛选（@local/dsh-workspace-session-filter）
+
+给 DSH 侧边栏加两个入口：
+
+1. **侧边栏左下角**的常驻筛选条 —— `运行中 N` / `待确认 N` 两个 chip，点一下就在上方
+   弹层里列出命中的会话，是日常主入口；
+2. 侧边栏面板列表里的「会话筛选」图标 —— 打开中间栏的完整视图，顶部是
+   `全部 / 运行中 / 等待确认 / 更多` 筛选器，`更多` 里是 `最近一天 / 最近三天 /
+   最近一周 / 最近一个月`（外加 `不限时间`）。
+
+## 功能
+
+- **按状态筛选**：左下角只保留 `运行中`（含子智能体仍在跑）与 `待确认`（审批、计划
+  审阅、待回答）两个 chip，各自带当前命中数；完整面板另有 `全部` 用于浏览。
+- **左下角直接可用**：点 chip 在上方弹出按工作区分组的列表，点行直接进会话，再点同一个
+  chip 收起；侧边栏收成窄条时退化为一个带角标（运行中 + 待确认 总数）的图标。
+- **按时间筛选**：`更多` 下拉里的四个时间窗，基于会话的 `updatedAt`；选中后 `更多`
+  按钮直接显示当前时间窗名称，再点一次可改回 `不限时间`。
+- **组合筛选**：状态与时间可叠加，右侧出现 `清除筛选` 一次复位。
+- **按工作区分组**：组标题是工作区名（没有名字时退化成目录名），组内按最近活动倒序；
+  不属于任何工作区的会话归到末尾的「未分组」组。
+- **一眼可见的状态**：每行左侧状态点复刻内置 `StateDot`（运行中是旋转描边环，其余是
+  10px 圆点并按状态着色），右侧显示状态文案与相对时间。
+- **点一下就能进**：整行是按钮，点击调用 `uiWorkspace.openSession(sessionId)` 切到会话面板。
+- **与内置列表同源**：跳过 `origin: 'subagent'` 的子智能体会话，默认隐藏归档会话，
+  只显示当前打开的空白新会话，标题空时显示「未命名会话」。
+
+## 安装状态
+
+已通过 `plugin_manager` 的 `install_bundle` 安装并启用到 desktop 配置，profile 以
+`link:` 依赖指向本目录（`~/.dsh_desktop/profiles/desktop/package.json`），所以改动本目录
+文件后刷新页面即可生效。
+
+## 结构
+
+| 文件 | 作用 |
+| --- | --- |
+| `client.js` | 全部界面逻辑：字典、图标、左下筛选条 + 面板 + 侧边栏图标三个 slot 注册、内联样式 |
+| `index.js` | Host 半边（本插件不需要 Host 能力，留空） |
+| `cordis.patch.yml` | 把 `session-filter` 条目插入 profile 组合 |
+| `package.json` | 包元信息 + `dsh.client` / `dsh.bundle` 声明 |
+| `locale/zh.json`、`locale/en.json` | 插件管理器里显示的名称与描述 |
+| `icon.svg` | 插件图标 |
+
+## 实现要点
+
+- **面板落位**：`sidebar.panellist` 的 `id` 与 `main` 的 `key` 复用同一个字符串
+  `session-filter`，侧边栏图标因此直接指向本面板；`order: 30` 排在插件、定时任务、
+  上下文之后。
+- **左下筛选条落位**：注册到 `sidebar.footer.action`（设置按钮上方一格，
+  `order: 10`），只拿到 ownerProps `{ wide }`；弹层用 `position: fixed` + 元素
+  包围盒算锚点，避开侧边栏自身的 `overflow` 裁切。
+- **数据来源**：`main` slot 提供的标准 props — `useSessions`（会话快照）、
+  `useWorkspaces`（工作区快照）、`useSessionStatus`（状态 Map），全部是
+  `SnapshotSelectorHook`，必须传 selector。
+- **样式**：只用 `--dsw-alias-*` / `--dsw-*` 设计令牌，数值对齐内置列表页
+  （960px 内容宽、`clamp(24px,4vw,48px)` 内边距、28px chip、32px 行高、菜单 4px 内衬
+  + `--dsw-elevation-prominent`），类名前缀 `dwsf-`。
+- **容错**：面板与左下筛选条各包一层错误边界（`PanelBoundary` / `FooterBoundary`），
+  渲染异常时分别退化成空状态 / 什么都不渲染，不会让中间栏变白或拖坏侧边栏；
+  标准 hooks 缺失时先打日志再降级。
+
+## 验证
+
+`node --check client.js`、manifest/字典 JSON 校验通过；安装后通过 Slots 检查确认
+`sidebar.footer.action`、`sidebar.panellist` 与 `main` 三个宿主都已挂上
+`session-filter`（运行中的页面里生效）。
+再用一个按树路径实现 hooks 的迷你 React 骨架渲染真实组件、驱动 chip 与下拉，
+覆盖了左下筛选条（chip 计数、弹层开合、行点击、窄条模式）与完整面板
+（计数、分组、状态/时间筛选、菜单开合、空状态）两条路径的断言。
+
+DSH 的检查工具没有渲染/截图能力，所以像素级外观需要你在正在运行的窗口里点左侧
+新图标目视确认。

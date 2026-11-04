@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Workspace Session Filter",
+    "description": "Filter workspace sessions by run state and recency, then open one in a click."
+  }
+}
