@@ -29,8 +29,9 @@
 
 ## 安装
 
-这是一个 DSH 插件包（bundle），把仓库克隆到本地后，用插件管理器的 `install_bundle`
-指向该目录的**绝对路径**即可：
+这是一个 DSH 插件包（bundle），两种装法：在应用里用**插件管理器**，或者用下面的 **`dsh` CLI**。
+
+插件管理器的 `install_bundle` 指向目录的**绝对路径**即可：
 
 ```text
 plugin_manager({ action: "install_bundle", target: "/绝对路径/dsh-workspace-session-filter" })
@@ -39,6 +40,29 @@ plugin_manager({ action: "install_bundle", target: "/绝对路径/dsh-workspace-
 装完后 profile 会以 `link:` 依赖指向该目录（`~/.dsh_desktop/profiles/desktop/package.json`），
 所以之后改动本目录的文件，刷新页面（⌘R）就会生效；只有改到 `package.json` 的
 `dsh.client.inject`、`cordis.patch.yml` 或 `index.js` 时才需要重新安装。
+
+### 用 `dsh` CLI 安装
+
+同一个包也可以交给 DSH 自带的 CLI 装进某个 profile（`dsh plugin` 会把参数原样转给
+profile 目录里的 pnpm，装完再读包里的 `dsh.bundle.patch` 自动登记到
+`dsh.profile.bundles`，因此不用手改 profile 的 `package.json`）：
+
+```bash
+# 从 GitHub 装（pnpm 会锁定解析到的 commit）
+dsh plugin --profile desktop add github:shijiewang/dsh-workspace-session-filter
+
+# 固定到某个标签
+dsh plugin --profile desktop add github:shijiewang/dsh-workspace-session-filter#v1.0.0
+
+# 或者直接用本仓库的绝对路径（装成 link: 依赖，改文件后刷新即生效）
+dsh plugin --profile desktop add /absolute/path/to/dsh-workspace-session-filter
+
+# 卸载
+dsh plugin --profile desktop remove @local/dsh-workspace-session-filter
+```
+
+前提：`pnpm` 在 PATH 上；`desktop` profile 需要先启动过一次桌面应用（命令会检查
+`profiles/desktop/package.json` 是否存在），并且建议在应用完全退出后再执行装包操作。
 
 装好后：
 
