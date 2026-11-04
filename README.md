@@ -1,4 +1,6 @@
-# 工作区会话筛选（@local/dsh-workspace-session-filter）
+# 工作区会话筛选（DSH 插件）
+
+`@local/dsh-workspace-session-filter` · MIT License · 仓库：<https://github.com/shijiewang/dsh-workspace-session-filter>
 
 给 DSH 侧边栏加两个入口：
 
@@ -25,11 +27,28 @@
 - **与内置列表同源**：跳过 `origin: 'subagent'` 的子智能体会话，默认隐藏归档会话，
   只显示当前打开的空白新会话，标题空时显示「未命名会话」。
 
-## 安装状态
+## 安装
 
-已通过 `plugin_manager` 的 `install_bundle` 安装并启用到 desktop 配置，profile 以
-`link:` 依赖指向本目录（`~/.dsh_desktop/profiles/desktop/package.json`），所以改动本目录
-文件后刷新页面即可生效。
+这是一个 DSH 插件包（bundle），把仓库克隆到本地后，用插件管理器的 `install_bundle`
+指向该目录的**绝对路径**即可：
+
+```text
+plugin_manager({ action: "install_bundle", target: "/绝对路径/dsh-workspace-session-filter" })
+```
+
+装完后 profile 会以 `link:` 依赖指向该目录（`~/.dsh_desktop/profiles/desktop/package.json`），
+所以之后改动本目录的文件，刷新页面（⌘R）就会生效；只有改到 `package.json` 的
+`dsh.client.inject`、`cordis.patch.yml` 或 `index.js` 时才需要重新安装。
+
+装好后：
+
+- 侧边栏**左下角**（设置按钮上方）出现 `运行中 N` / `待确认 N` 筛选条；
+- 侧边栏面板列表里出现「会话筛选」图标，指向中间栏的完整视图。
+
+卸载：`plugin_manager({ action: "remove_bundle", target: "@local/dsh-workspace-session-filter" })`。
+
+> 包名带 `@local/` 作用域，因为它只通过本地目录安装、不发布到 npm；如要改成公开包名，
+> 同步修改 `package.json` 的 `name` 与已安装 profile 里的依赖名即可。
 
 ## 结构
 
@@ -71,3 +90,7 @@
 
 DSH 的检查工具没有渲染/截图能力，所以像素级外观需要你在正在运行的窗口里点左侧
 新图标目视确认。
+
+## 许可证
+
+MIT License，见 [LICENSE](LICENSE)。
