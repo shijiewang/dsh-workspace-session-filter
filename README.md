@@ -79,8 +79,8 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 
 卸载：`plugin_manager({ action: "remove_bundle", target: "dsh-workspace-session-filter" })`。
 
-> 包名带 `@local/` 作用域，因为它只通过本地目录安装、不发布到 npm；如要改成公开包名，
-> 同步修改 `package.json` 的 `name` 与已安装 profile 里的依赖名即可。
+> 包名 `dsh-workspace-session-filter` 与仓库同名，`dsh plugin` 用 git spec、tarball 或
+> 目录路径都能装；发布到 npm registry 后，也可以直接把包名交给 `dsh plugin add`。
 
 ## 结构
 
