@@ -1,7 +1,6 @@
 {
-  "name": "@local/dsh-workspace-session-filter",
+  "name": "dsh-workspace-session-filter",
   "version": "1.0.0",
-  "private": true,
   "description": "Workspace session filter panel with status and recency filters.",
   "type": "module",
   "exports": {
@@ -40,6 +39,9 @@
     "url": "https://github.com/shijiewang/dsh-workspace-session-filter/issues"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "dsh",
     "deepseek-harness",

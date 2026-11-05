@@ -1,6 +1,6 @@
 # 工作区会话筛选（DSH 插件）
 
-`@local/dsh-workspace-session-filter` · MIT License · 仓库：<https://github.com/shijiewang/dsh-workspace-session-filter>
+`dsh-workspace-session-filter` · MIT License · 仓库：<https://github.com/shijiewang/dsh-workspace-session-filter>
 
 给 DSH 侧边栏加两个入口：
 
@@ -58,7 +58,7 @@ dsh plugin --profile desktop add github:shijiewang/dsh-workspace-session-filter#
 dsh plugin --profile desktop add /absolute/path/to/dsh-workspace-session-filter
 
 # 卸载
-dsh plugin --profile desktop remove @local/dsh-workspace-session-filter
+dsh plugin --profile desktop remove dsh-workspace-session-filter
 ```
 
 几点前提：
@@ -77,7 +77,7 @@ dsh plugin --profile desktop remove @local/dsh-workspace-session-filter
 - 侧边栏**左下角**（设置按钮上方）出现 `运行中 N` / `待确认 N` 筛选条；
 - 侧边栏面板列表里出现「会话筛选」图标，指向中间栏的完整视图。
 
-卸载：`plugin_manager({ action: "remove_bundle", target: "@local/dsh-workspace-session-filter" })`。
+卸载：`plugin_manager({ action: "remove_bundle", target: "dsh-workspace-session-filter" })`。
 
 > 包名带 `@local/` 作用域，因为它只通过本地目录安装、不发布到 npm；如要改成公开包名，
 > 同步修改 `package.json` 的 `name` 与已安装 profile 里的依赖名即可。
