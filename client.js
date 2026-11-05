@@ -587,8 +587,12 @@ window.__ModuleLoader__.load({
       if (typeof document === 'undefined' || typeof window === 'undefined') return null
       if (typeof document.querySelector !== 'function') return null
       const slot = document.querySelector(HEADER_SLOT_SELECTOR)
-      if (!slot || typeof slot.querySelector !== 'function') return null
-      const header = slot.querySelector('[class*="_sectionHeader"]')
+      let header = (slot && typeof slot.querySelector === 'function')
+        ? slot.querySelector('[class*="_sectionHeader"]')
+        : null
+      /* Secondary probe: the region outlet may be renamed upstream, but the header
+         class suffix belongs to this package only. */
+      if (!header) header = document.querySelector('[class*="_sectionHeader"]')
       if (!header || typeof header.getBoundingClientRect !== 'function') return null
       const search = header.querySelector('[class*="_searchSlot"]')
       if (!search || typeof search.getBoundingClientRect !== 'function') return null

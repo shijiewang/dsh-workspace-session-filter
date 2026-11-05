@@ -39,6 +39,9 @@
     "url": "https://github.com/shijiewang/dsh-workspace-session-filter/issues"
   },
   "license": "MIT",
+  "scripts": {
+    "test": "node test/smoke.cjs"
+  },
   "publishConfig": {
     "access": "public"
   },
