@@ -30,6 +30,7 @@ window.__ModuleLoader__.load({
       'filter.running': '运行中',
       'filter.awaiting': '等待确认',
       'filter.awaitingShort': '待确认',
+      'filter.unread': '未读',
       'filter.more': '更多',
       'filter.reset': '清除筛选',
       'filter.aria': '会话筛选条件',
@@ -68,6 +69,7 @@ window.__ModuleLoader__.load({
       'filter.running': 'Running',
       'filter.awaiting': 'Awaiting confirmation',
       'filter.awaitingShort': 'Awaiting',
+      'filter.unread': 'Unread',
       'filter.more': 'More',
       'filter.reset': 'Clear filters',
       'filter.aria': 'Session filters',
@@ -228,6 +230,7 @@ window.__ModuleLoader__.load({
         label = t('status.subagentsRunning', { n: subagents })
       } else if (completed) {
         dot = 'done'
+        label = t('filter.unread')
       }
       return {
         id: summary.id,
@@ -238,6 +241,7 @@ window.__ModuleLoader__.load({
         label,
         awaiting: kind !== undefined,
         running: running || subagents > 0,
+        unread: completed,
       }
     }
 
@@ -272,11 +276,14 @@ window.__ModuleLoader__.load({
       }
 
       const matches = (row) => statusFilter === 'all'
-        || (statusFilter === 'running' ? row.running : row.awaiting)
+        || (statusFilter === 'running' ? row.running
+          : statusFilter === 'awaiting' ? row.awaiting
+            : row.unread)
       const counts = {
         all: base.length,
         running: base.filter((row) => row.running).length,
         awaiting: base.filter((row) => row.awaiting).length,
+        unread: base.filter((row) => row.unread).length,
       }
 
       const groups = []
@@ -526,6 +533,10 @@ window.__ModuleLoader__.load({
                 label: t('filter.awaiting'), count: view.counts.awaiting, active: statusFilter === 'awaiting',
                 onClick: () => setStatusFilter(statusFilter === 'awaiting' ? 'all' : 'awaiting'),
               }),
+              h(FilterTab, {
+                label: t('filter.unread'), count: view.counts.unread, active: statusFilter === 'unread',
+                onClick: () => setStatusFilter(statusFilter === 'unread' ? 'all' : 'unread'),
+              }),
               filtered
                 ? h('button', {
                     type: 'button',
@@ -671,7 +682,8 @@ window.__ModuleLoader__.load({
 
       const filters = h('div', { className: 'dwsf-footChips', role: 'group', 'aria-label': t('filter.aria') },
         chip('running', t('filter.running'), view.counts.running),
-        chip('awaiting', t('filter.awaitingShort'), view.counts.awaiting)
+        chip('awaiting', t('filter.awaitingShort'), view.counts.awaiting),
+        chip('unread', t('filter.unread'), view.counts.unread)
       )
 
       const popover = open && anchor !== undefined
@@ -696,7 +708,7 @@ window.__ModuleLoader__.load({
         : null
 
       if (!wide) {
-        const waiting = view.counts.running + view.counts.awaiting
+        const waiting = view.counts.running + view.counts.awaiting + view.counts.unread
         return h('div', { ref: rootRef, className: 'dwsf-footRail' },
           popover,
           h('button', {
