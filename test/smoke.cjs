@@ -341,8 +341,11 @@ assert.strictEqual(seenStore.has('dsh-workspace-session-filter:nav.v1'), false)
 
 /* the same page also lands in the settings nav, with a shortcut to the panel */
 assert.ok(sectionEntry, 'settings.section registration missing')
+const iconEntrySection = registered.entries.find(([slot]) => slot === 'settings.section.icon')
+assert.ok(iconEntrySection, 'settings.section.icon registration missing')
+assert.strictEqual(iconEntrySection[1].id, 'session-filter')
 assert.strictEqual(sectionEntry[1].id, 'session-filter')
-assert.strictEqual(sectionEntry[1].order, 40)
+assert.strictEqual(sectionEntry[1].order, 25)
 assert.strictEqual(typeof sectionEntry[1].label, 'function')
 hookStore.clear()
 let panelOpens = 0

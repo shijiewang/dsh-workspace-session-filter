@@ -1125,10 +1125,17 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',
           id: PANEL_ID,
-          order: 40,
+          order: 25,
           label: () => t('panel.label'),
           inject: () => ({ t, onOpenPanel: openPanel }),
         }, SettingsPage)), 'workspace-session-filter: settings section')
+
+        ctx.effect(() => ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
+          name: 'settings.section.icon',
+          id: PANEL_ID,
+          order: 25,
+          label: () => t('panel.label'),
+        }, PanelGlyph)), 'workspace-session-filter: settings section icon')
 
         ctx.effect(() => ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
           name: 'settings.plugins.tab',
