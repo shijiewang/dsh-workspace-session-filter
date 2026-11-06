@@ -356,6 +356,8 @@ footChips[0].props.onClick()
 foot = renderFoot(true)
 assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length, 1, 'popover opens')
 assert.strictEqual(buttonsWithClass(foot, 'dwsf-footChip')[0].props['data-active'], 'true')
+assert.strictEqual(findAll(foot, (n) => n.tag === 'button' && n.props.role === 'switch').length, 1, 'popover carries the nav switch')
+assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-popFoot').length, 1, 'popover renders the switch row')
 const before = registered.opened.length
 let footRows = buttonsWithClass(foot, 'dwsf-row')
 assert.strictEqual(footRows.length, 1, 'running filter applied inside the footer list')

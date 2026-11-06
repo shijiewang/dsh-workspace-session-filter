@@ -86,7 +86,7 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 
 卸载：`plugin_manager({ action: "remove_bundle", target: "dsh-workspace-session-filter" })`。
 
-> 包名 `dsh-workspace-session-filter` 与仓库同名。截至 1.0.6，npm registry、
+> 包名 `dsh-workspace-session-filter` 与仓库同名。截至 1.0.7，npm registry、
 > GitHub、release tarball、本地目录四种来源都能装；registry 上是 `npm publish` 发出的
 > 正式版本，`repository` 字段指回本仓库。
 
@@ -106,7 +106,8 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 - **面板落位**：`sidebar.panellist` 的 `id` 与 `main` 的 `key` 复用同一个字符串
   `session-filter`，侧边栏图标因此直接指向本面板；`order: 30` 排在插件、定时任务、
   上下文之后。
-- **导航图标可关**：注册在 `设置 → 插件` 的 `settings.plugins.tab` 页面只放一个开关；
+- **导航图标可关**：开关出现在两处 —— `设置 → 内置插件 → 会话筛选` 标签页，以及底部筛选条
+  弹出的列表页脚（不打开设置也能拨）；
   偏好存 `localStorage`（键 `dsh-workspace-session-filter:nav.v1`，默认关），
   开关变化时**注销/重建** `sidebar.panellist` 注册，因此关掉时不会留下一个空图标位。
 - **筛选条落位**：注册在 `sidebar.footer.action`（设置按钮上方的一行槽位），整条占满宽度；

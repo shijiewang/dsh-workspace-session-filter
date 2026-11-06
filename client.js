@@ -838,6 +838,10 @@ window.__ModuleLoader__.load({
               view.loading
                 ? h('div', { className: 'dwsf-empty' }, h('div', null, t('empty.loading')))
                 : h(Groups, { view, t, now, onOpen })
+            ),
+            h('div', { className: 'dwsf-popFoot' },
+              h('span', { className: 'dwsf-popFootLabel' }, t('settings.nav')),
+              h(NavSwitch, { t })
             )
           )
         : null
@@ -868,11 +872,28 @@ window.__ModuleLoader__.load({
      * The plugin's own page inside Settings → Plugins. One switch owns the
      * optional left-nav entry; the sidebar-foot filter bar is unaffected.
      */
-    function SettingsPage(props) {
-      const t = props.t
+    function NavSwitch(props) {
       const [on, setOn] = useState(navVisible)
 
       useEffect(() => subscribeNav((value) => setOn(value)), [])
+
+      return h('button', {
+        type: 'button',
+        role: 'switch',
+        className: 'dwsf-switch',
+        'aria-checked': on ? 'true' : 'false',
+        'aria-label': props.t('settings.nav'),
+        'data-on': on ? 'true' : 'false',
+        onClick: () => setNavVisible(!on),
+      },
+        h('span', { className: 'dwsf-switchTrack', 'data-on': on ? 'true' : 'false', 'aria-hidden': 'true' },
+          h('span', { className: 'dwsf-switchThumb' })
+        )
+      )
+    }
+
+    function SettingsPage(props) {
+      const t = props.t
 
       return h('div', { className: 'dwsf-settings' },
         h('div', { className: 'dwsf-settingRow' },
@@ -880,19 +901,7 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dwsf-settingLabel' }, t('settings.nav')),
             h('span', { className: 'dwsf-settingHint' }, t('settings.navHint'))
           ),
-          h('button', {
-            type: 'button',
-            role: 'switch',
-            className: 'dwsf-switch',
-            'aria-checked': on ? 'true' : 'false',
-            'aria-label': t('settings.nav'),
-            'data-on': on ? 'true' : 'false',
-            onClick: () => setNavVisible(!on),
-          },
-            h('span', { className: 'dwsf-switchTrack', 'data-on': on ? 'true' : 'false', 'aria-hidden': 'true' },
-              h('span', { className: 'dwsf-switchThumb' })
-            )
-          )
+          h(NavSwitch, { t })
         )
       )
     }
@@ -1017,6 +1026,8 @@ window.__ModuleLoader__.load({
 .dwsf-switchThumb{width:16px;height:16px;border-radius:999px;background:var(--dsw-alias-bg-base);transition:transform .16s ease}
 .dwsf-switchTrack[data-on="true"] .dwsf-switchThumb{transform:translateX(14px)}
 .dwsf-pop{position:fixed;z-index:60;display:flex;flex-direction:column;width:min(340px,calc(100vw - 24px));max-height:60vh;border-radius:12px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);overflow:hidden}
+.dwsf-popFoot{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border-top:.5px solid var(--dsw-alias-border-l2);font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.dwsf-popFootLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dwsf-popHead{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:10px 12px 4px}
 .dwsf-popTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:20px}
 .dwsf-popCount{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px;font-variant-numeric:tabular-nums}
