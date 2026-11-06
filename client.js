@@ -33,6 +33,9 @@ window.__ModuleLoader__.load({
       'filter.unread': '未读',
       'settings.nav': '在左侧导航显示',
       'settings.navHint': '打开后左侧导航多一个「会话筛选」入口，可打开完整筛选面板；关闭时侧边栏底部的筛选条照常可用。',
+      'settings.panel': '完整筛选面板',
+      'settings.panelHint': '在中间栏打开完整视图：全部 / 运行中 / 等待确认 / 未读，外加按时间窗筛选。',
+      'settings.openPanel': '打开面板',
       'filter.more': '更多',
       'filter.reset': '清除筛选',
       'filter.aria': '会话筛选条件',
@@ -74,6 +77,9 @@ window.__ModuleLoader__.load({
       'filter.unread': 'Unread',
       'settings.nav': 'Show in the left navigation',
       'settings.navHint': 'Adds a Session filter entry to the left navigation that opens the full panel. The filter bar at the foot of the sidebar keeps working either way.',
+      'settings.panel': 'Full filter panel',
+      'settings.panelHint': 'Open the wide view in the centre column: all / running / awaiting / unread, plus the time-window menu.',
+      'settings.openPanel': 'Open panel',
       'filter.more': 'More',
       'filter.reset': 'Clear filters',
       'filter.aria': 'Session filters',
@@ -902,6 +908,17 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dwsf-settingHint' }, t('settings.navHint'))
           ),
           h(NavSwitch, { t })
+        ),
+        h('div', { className: 'dwsf-settingRow' },
+          h('div', { className: 'dwsf-settingCopy' },
+            h('span', { className: 'dwsf-settingLabel' }, t('settings.panel')),
+            h('span', { className: 'dwsf-settingHint' }, t('settings.panelHint'))
+          ),
+          h('button', {
+            type: 'button',
+            className: 'dwsf-btn',
+            onClick: () => { if (typeof props.onOpenPanel === 'function') props.onOpenPanel() },
+          }, t('settings.openPanel'))
         )
       )
     }
@@ -1019,6 +1036,8 @@ window.__ModuleLoader__.load({
 .dwsf-settingCopy{display:flex;flex-direction:column;gap:2px;min-width:0}
 .dwsf-settingLabel{font-size:13px;line-height:20px}
 .dwsf-settingHint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.dwsf-btn{flex:none;height:28px;padding:0 12px;border:0;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px;cursor:pointer}
+.dwsf-btn:hover{background:var(--dsw-alias-interactive-bg-active)}
 .dwsf-switch{flex:none;margin-top:1px;padding:0;border:0;background:0 0;cursor:pointer;border-radius:999px;line-height:0}
 .dwsf-switch:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
 .dwsf-switchTrack{display:inline-flex;align-items:center;width:34px;height:20px;padding:2px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l2);transition:background .16s ease,box-shadow .16s ease}
@@ -1071,7 +1090,16 @@ window.__ModuleLoader__.load({
           return () => { tag.remove() }
         }, 'workspace-session-filter: styles')
 
-        const openSession = (sessionId) => {
+        const openPanel = () => {
+        const layout = ctx.get('layout')
+        if (!layout || typeof layout.selectPanel !== 'function') {
+          console.error('[workspace-session-filter] layout service is unavailable')
+          return
+        }
+        layout.selectPanel(PANEL_ID)
+      }
+
+      const openSession = (sessionId) => {
           const uiWorkspace = ctx.get('uiWorkspace')
           if (!uiWorkspace) {
             console.error('[workspace-session-filter] uiWorkspace service is unavailable')
@@ -1093,6 +1121,14 @@ window.__ModuleLoader__.load({
           label: () => t('panel.label'),
           inject: () => ({ t, onOpen: openSession }),
         }, FooterEntry)), 'workspace-session-filter: sidebar footer')
+
+        ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
+          name: 'settings.section',
+          id: PANEL_ID,
+          order: 40,
+          label: () => t('panel.label'),
+          inject: () => ({ t, onOpenPanel: openPanel }),
+        }, SettingsPage)), 'workspace-session-filter: settings section')
 
         ctx.effect(() => ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
           name: 'settings.plugins.tab',

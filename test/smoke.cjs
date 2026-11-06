@@ -187,6 +187,7 @@ plugin.apply(ctx)
 
 const panelEntry = registered.entries.find(([slot]) => slot === 'main')
 const settingsEntry = registered.entries.find(([slot]) => slot === 'settings.plugins.tab')
+const sectionEntry = registered.entries.find(([slot]) => slot === 'settings.section')
 assert.ok(panelEntry, 'main registration missing')
 assert.ok(settingsEntry, 'settings.plugins.tab registration missing')
 assert.strictEqual(panelEntry[1].key, 'session-filter')
@@ -337,6 +338,20 @@ switchAgain.props.onClick()
 assert.ok(!registered.entries.some(([slot]) => slot === 'sidebar.panellist'),
   'turning the switch off unregisters the nav icon')
 assert.strictEqual(seenStore.has('dsh-workspace-session-filter:nav.v1'), false)
+
+/* the same page also lands in the settings nav, with a shortcut to the panel */
+assert.ok(sectionEntry, 'settings.section registration missing')
+assert.strictEqual(sectionEntry[1].id, 'session-filter')
+assert.strictEqual(sectionEntry[1].order, 40)
+assert.strictEqual(typeof sectionEntry[1].label, 'function')
+hookStore.clear()
+let panelOpens = 0
+const sectionTree = renderInto(sectionEntry[2], { onOpenPanel: () => { panelOpens += 1 } })
+assert.strictEqual(findAll(sectionTree, (n) => n.props.className === 'dwsf-settingRow').length, 2, 'settings page shows two rows')
+const openBtn = findAll(sectionTree, (n) => n.tag === 'button' && n.props.className === 'dwsf-btn')[0]
+assert.ok(openBtn, 'settings page needs the open-panel button')
+openBtn.props.onClick()
+assert.strictEqual(panelOpens, 1, 'the button asks for the panel')
 
 /* ------------------------------ footer bar ------------------------------ */
 const footEntry = registered.entries.find(([slot]) => slot === 'sidebar.footer.action')
