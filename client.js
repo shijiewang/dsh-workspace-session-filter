@@ -572,238 +572,10 @@ window.__ModuleLoader__.load({
       return h(PanelBoundary, { t }, h(SessionFilterPage, props))
     }
 
-    /* ---------------------------------------------------------------- header */
-
-    const HEADER_SLOT_SELECTOR = '[data-slot="sidebar.workspaces"]'
-
     /**
-     * ui-workspace owns the workspace section header (label, magnifier, view
-     * options, add) and exposes no slot inside it, so the filter icons are placed
-     * over the measured row: immediately left of the search box, with a hairline
-     * before the native controls. Returns null when the row cannot be measured —
-     * the caller then falls back to the sidebar-foot bar.
-     */
-    function measureHeaderSpot() {
-      if (typeof document === 'undefined' || typeof window === 'undefined') return null
-      if (typeof document.querySelector !== 'function') return null
-      const slot = document.querySelector(HEADER_SLOT_SELECTOR)
-      let header = (slot && typeof slot.querySelector === 'function')
-        ? slot.querySelector('[class*="_sectionHeader"]')
-        : null
-      /* Secondary probe: the region outlet may be renamed upstream, but the header
-         class suffix belongs to this package only. */
-      if (!header) header = document.querySelector('[class*="_sectionHeader"]')
-      if (!header || typeof header.getBoundingClientRect !== 'function') return null
-      const search = header.querySelector('[class*="_searchSlot"]')
-      if (!search || typeof search.getBoundingClientRect !== 'function') return null
-      const rect = header.getBoundingClientRect()
-      const searchRect = search.getBoundingClientRect()
-      if (!rect || !(rect.height >= 24)) return null
-      /* Rail (collapsed sidebar) and the expanded search box own that row: hide
-         rather than fall back, so nothing pops up at the sidebar foot. */
-      if (!(rect.width >= 150)) return { hidden: true }
-      if (header.querySelector('[class*="_searchSlotExpanded"]')) return { hidden: true }
-      const top = Math.round(rect.top + (rect.height - 28) / 2)
-      const right = Math.round(window.innerWidth - searchRect.left + 6)
-      if (!(top > -40) || !(right > 0)) return null
-      return { top, right }
-    }
-
-    /** A dashed running circle: the header twin of the shipped ongoing status dot. */
-    function RunningGlyph(props) {
-      const size = props.size || 14
-      return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true', focusable: 'false' },
-        h('circle', {
-          cx: 8, cy: 8, r: 5.5,
-          stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeDasharray: '6.2 4.2',
-        }),
-        h('path', {
-          d: 'M11.4 3.4l.2 2.4-2.4-.2',
-          stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
-        })
-      )
-    }
-
-    /** A circled exclamation: a session that is waiting on an answer. */
-    function WaitingGlyph(props) {
-      const size = props.size || 14
-      return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true', focusable: 'false' },
-        h('circle', { cx: 8, cy: 8, r: 5.6, stroke: 'currentColor', strokeWidth: 1.4 }),
-        h('path', { d: 'M8 4.9v3.5', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' }),
-        h('circle', { cx: 8, cy: 11.1, r: 0.9, fill: 'currentColor' })
-      )
-    }
-
-    /** Shared popover: workspace-grouped sessions for one filter. */
-    function FilterPopover(props) {
-      const t = props.t
-      const view = props.view
-      return h('section', {
-        className: 'dwsf-pop',
-        style: props.style,
-        role: 'dialog',
-        'aria-label': t('panel.label'),
-      },
-        h('header', { className: 'dwsf-popHead' },
-          h('span', { className: 'dwsf-popTitle' }, t('panel.label')),
-          h('span', { className: 'dwsf-popCount' },
-            t('panel.summary', { n: view.total, w: view.groups.length }))
-        ),
-        props.filters || null,
-        h('div', { className: 'dwsf-popBody' },
-          view.loading
-            ? h('div', { className: 'dwsf-empty' }, h('div', null, t('empty.loading')))
-            : h(Groups, { view, t, now: props.now, onOpen: props.onOpen })
-        )
-      )
-    }
-
-    /**
-     * The two filter icons in the workspace section header. They read the same
-     * snapshot hooks as the panel, drop into the header row without touching the
-     * shipped component tree, and hide themselves while the sidebar is a rail or
-     * the search box is expanded (the native actions fade out there too).
-     */
-    function HeaderFilters(props) {
-      const t = props.t
-      const [mode, setMode] = useState('running')
-      const [open, setOpen] = useState(false)
-      const [spot, setSpot] = useState(() => measureHeaderSpot())
-      const [anchor, setAnchor] = useState(undefined)
-      const layerRef = useRef(null)
-      const [, setTick] = useState(0)
-
-      useEffect(() => {
-        const timer = setInterval(() => setTick((value) => value + 1), 60000)
-        return () => clearInterval(timer)
-      }, [])
-
-      useEffect(() => {
-        let frame = 0
-        let warned = false
-        const measure = () => {
-          frame = 0
-          const next = measureHeaderSpot()
-          if (!next && !warned) {
-            warned = true
-            console.warn('[workspace-session-filter] workspace header not found; using the sidebar-foot bar')
-          }
-          if (next && next.hidden) setOpen(false)
-          setSpot((prev) => {
-            if (prev === next) return prev
-            if (prev && next && prev.hidden && next.hidden) return prev
-            if (prev && next && prev.top === next.top && prev.right === next.right) return prev
-            return next
-          })
-        }
-        const schedule = () => {
-          if (frame) return
-          frame = (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function')
-            ? window.requestAnimationFrame(measure)
-            : setTimeout(measure, 16)
-        }
-        measure()
-        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') window.addEventListener('resize', schedule)
-        const slot = (typeof document !== 'undefined' && typeof document.querySelector === 'function')
-          ? document.querySelector(HEADER_SLOT_SELECTOR)
-          : null
-        const Observer = typeof window !== 'undefined' ? window.MutationObserver : undefined
-        const observer = (slot && typeof Observer === 'function') ? new Observer(schedule) : null
-        if (observer) observer.observe(slot, { attributes: true, attributeFilter: ['class', 'style'], subtree: true, childList: true })
-        return () => {
-          if (frame) {
-            if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frame)
-            else clearTimeout(frame)
-          }
-          if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') window.removeEventListener('resize', schedule)
-          if (observer) observer.disconnect()
-        }
-      }, [])
-
-      useEffect(() => {
-        if (!open) return undefined
-        const onPointerDown = (event) => {
-          const node = layerRef.current
-          if (node && event.target && typeof node.contains === 'function' && node.contains(event.target)) return
-          setOpen(false)
-        }
-        const onKeyDown = (event) => {
-          if (event.key !== 'Escape' || event.defaultPrevented) return
-          event.preventDefault()
-          setOpen(false)
-        }
-        document.addEventListener('pointerdown', onPointerDown, true)
-        document.addEventListener('keydown', onKeyDown, true)
-        return () => {
-          document.removeEventListener('pointerdown', onPointerDown, true)
-          document.removeEventListener('keydown', onKeyDown, true)
-        }
-      }, [open])
-
-      if (spot === null) return h(FooterBar, props)
-      if (spot === undefined || spot.hidden) return null
-
-      const now = Date.now()
-      const view = deriveView(props, mode, null, now)
-      const closeAndOpen = (sessionId) => {
-        setOpen(false)
-        props.onOpen(sessionId)
-      }
-      const openWith = (nextMode, event) => {
-        if (open && mode === nextMode) {
-          setOpen(false)
-          return
-        }
-        const node = event && event.currentTarget
-        setMode(nextMode)
-        if (node && typeof node.getBoundingClientRect === 'function' && typeof window !== 'undefined') {
-          const rect = node.getBoundingClientRect()
-          const width = Math.min(340, window.innerWidth - 24)
-          setAnchor({
-            left: Math.round(Math.max(12, Math.min(rect.left, window.innerWidth - width - 12))),
-            top: Math.round(rect.bottom + 8),
-          })
-        } else {
-          setAnchor({ left: 24, top: 120 })
-        }
-        setOpen(true)
-      }
-      const button = (key, label, count, glyph) => h('button', {
-        key,
-        type: 'button',
-        className: 'dwsf-headBtn',
-        'data-active': open && mode === key ? 'true' : 'false',
-        'aria-pressed': open && mode === key ? 'true' : 'false',
-        'aria-label': count > 0 ? label + ' · ' + count : label,
-        title: count > 0 ? label + ' · ' + count : label,
-        onClick: (event) => openWith(key, event),
-      },
-        glyph,
-        count > 0
-          ? h('span', { className: 'dwsf-headCount', 'data-tone': key === 'awaiting' ? 'warn' : 'calm', 'aria-hidden': 'true' }, String(count))
-          : null
-      )
-      const popover = open && anchor
-        ? h(FilterPopover, { t, view, now, onOpen: closeAndOpen, style: anchor })
-        : null
-      return h('div', { ref: layerRef, className: 'dwsf-headLayer' },
-        popover,
-        h('div', {
-          className: 'dwsf-headGroup',
-          style: { top: spot.top, right: spot.right },
-          role: 'group',
-          'aria-label': t('filter.aria'),
-        },
-          button('running', t('filter.running'), view.counts.running, h(RunningGlyph, { size: 14 })),
-          button('awaiting', t('filter.awaitingShort'), view.counts.awaiting, h(WaitingGlyph, { size: 14 })),
-          h('span', { className: 'dwsf-headDivider', 'aria-hidden': 'true' })
-        )
-      )
-    }
-
-    /**
-     * Fallback bar (only when the workspace header cannot be measured): the two
-     * status filters sit at the sidebar foot and open the same popover.
+     * The sidebar-foot filter bar. Two chips cover the states worth interrupting a
+     * human for and expand a workspace-grouped popover upwards; a collapsed
+     * sidebar gets one icon button with a combined badge instead.
      */
     function FooterBar(props) {
       const t = props.t
@@ -954,7 +726,7 @@ window.__ModuleLoader__.load({
         console.error('[workspace-session-filter] snapshot hooks are unavailable on sidebar.footer.action', props)
         return null
       }
-      return h(FooterBoundary, null, h(HeaderFilters, props))
+      return h(FooterBoundary, null, h(FooterBar, props))
     }
 
     class FooterBoundary extends React.Component {
@@ -984,10 +756,7 @@ window.__ModuleLoader__.load({
 .dwsf-page{width:100%;min-width:0;height:100%;min-height:0;display:flex;overflow:hidden;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-size:14px;line-height:1.6}
 .dwsf-scroll{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;--dsh-scrollbar-width:9px;--dsh-scrollbar-thumb-border:2px}
 .dwsf-content{max-width:960px;margin:0 auto;padding:0 clamp(24px,4vw,48px) 48px}
-.dwsf-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin:0 0 24px;padding-top:28px}
 [data-platform=darwin] .dwsf-heading{padding-top:calc(28px + var(--dsh-frame-top-clearance,0px))}
-.dwsf-heading h1{min-width:0;max-width:100%;margin:0;font-size:20px;font-weight:500;line-height:28px}
-.dwsf-headingMeta{flex:none;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .dwsf-filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 14px}
 .dwsf-filter{height:28px;display:inline-flex;align-items:center;gap:5px;flex:none;padding:0 10px;border:0;border-radius:14px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:14px;line-height:22px;white-space:nowrap;cursor:pointer}
 .dwsf-filter:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -1064,15 +833,6 @@ window.__ModuleLoader__.load({
 .dwsf-popBody{flex:1;min-height:0;padding:0 8px 10px;overflow:auto;--dsh-scrollbar-width:9px}
 .dwsf-pop .dwsf-groupHead{padding:10px 8px 4px}
 .dwsf-pop .dwsf-empty{padding:28px 16px}
-.dwsf-headLayer{position:static;display:block;width:0;height:0;overflow:visible}
-.dwsf-headGroup{position:fixed;z-index:55;display:flex;align-items:center;gap:2px;height:28px;pointer-events:auto}
-.dwsf-headBtn{position:relative;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:0 0;color:var(--dsw-alias-label-secondary);cursor:pointer}
-.dwsf-headBtn:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.dwsf-headBtn[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
-.dwsf-headBtn:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}
-.dwsf-headCount{position:absolute;top:0;right:-1px;min-width:12px;height:12px;padding:0 3px;border-radius:999px;background:var(--dsw-specific-sidebar-fill);color:var(--dsw-alias-label-tertiary);font-size:9px;line-height:12px;text-align:center;font-variant-numeric:tabular-nums}
-.dwsf-headCount[data-tone="warn"]{color:var(--dsw-alias-state-warn-primary)}
-.dwsf-headDivider{flex:none;width:.5px;height:16px;margin-left:6px;background:var(--dsw-alias-border-l2)}
 `
 
     /* ------------------------------------------------------------------ *

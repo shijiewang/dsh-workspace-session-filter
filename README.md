@@ -4,20 +4,19 @@
 
 给 DSH 侧边栏加两个入口：
 
-1. **工作区标题行里的两个小图标** —— 就在放大镜左边、与原生按钮之间隔一条细分隔线，
-   分别是 `运行中` 与 `待确认`（各自带命中数角标）。点一下在下方弹出按工作区分组的
-   会话列表，点行直接进会话，是日常主入口；
+1. **侧边栏底部的筛选条** —— 设置按钮上方单独一行，`运行中` 与 `待确认` 两个 chip
+   （各自带命中数）。点一下向上弹出按工作区分组的会话列表，点行直接进会话，是日常主入口；
 2. 侧边栏面板列表里的「会话筛选」图标 —— 打开中间栏的完整视图，顶部是
    `全部 / 运行中 / 等待确认 / 更多` 筛选器，`更多` 里是 `最近一天 / 最近三天 /
    最近一周 / 最近一个月`（外加 `不限时间`）。
 
 ## 功能
 
-- **按状态筛选**：标题行只放 `运行中`（含子智能体仍在跑）与 `待确认`（审批、计划
-  审阅、待回答）两个图标，各自带当前命中数；完整面板另有 `全部` 用于浏览。
-- **就在手边**：点图标在下方弹出按工作区分组的列表，点行直接进会话，再点同一个图标收起；
-  侧边栏收成窄条、或搜索框展开时隐藏（那两种状态下原生按钮也会让位）。若连标题行都
-  定位不到（例如上游改了结构），自动退回侧边栏左下角的 chip 条，功能不会消失。
+- **按状态筛选**：底部只放 `运行中`（含子智能体仍在跑）与 `待确认`（审批、计划审阅、
+  待回答）两个 chip，各自带当前命中数；完整面板另有 `全部` 用于浏览。
+- **就在手边**：点 chip 向上弹出按工作区分组的列表，点行直接进会话，再点同一个 chip 收起；
+  侧边栏收成窄条时换成带合计角标的圆形按钮，展开后同样能筛。
+- **单独一行**：筛选条占满侧边栏那一行，不和成本计等其他底部条目挤在一起。
 - **按时间筛选**：`更多` 下拉里的四个时间窗，基于会话的 `updatedAt`；选中后 `更多`
   按钮直接显示当前时间窗名称，再点一次可改回 `不限时间`。
 - **组合筛选**：状态与时间可叠加，右侧出现 `清除筛选` 一次复位。
@@ -54,7 +53,7 @@ profile 目录里的 pnpm，装完再读包里的 `dsh.bundle.patch` 自动登�
 dsh plugin --profile desktop add github:shijiewang/dsh-workspace-session-filter
 
 # 固定到某个标签
-dsh plugin --profile desktop add github:shijiewang/dsh-workspace-session-filter#v1.0.0
+dsh plugin --profile desktop add github:shijiewang/dsh-workspace-session-filter#v1.0.1
 
 # 或者直接用本仓库的绝对路径（装成 link: 依赖，改文件后刷新即生效）
 dsh plugin --profile desktop add /absolute/path/to/dsh-workspace-session-filter
@@ -76,7 +75,7 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 
 装好后：
 
-- 侧边栏**左下角**（设置按钮上方）出现 `运行中 N` / `待确认 N` 筛选条；
+- 侧边栏**底部**（设置按钮上方、单独一行）出现 `运行中 N` / `待确认 N` 筛选条；
 - 侧边栏面板列表里出现「会话筛选」图标，指向中间栏的完整视图。
 
 卸载：`plugin_manager({ action: "remove_bundle", target: "dsh-workspace-session-filter" })`。
@@ -88,7 +87,7 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 
 | 文件 | 作用 |
 | --- | --- |
-| `client.js` | 全部界面逻辑：字典、图标、左下筛选条 + 面板 + 侧边栏图标三个 slot 注册、内联样式 |
+| `client.js` | 全部界面逻辑：字典、图标、底部筛选条 + 面板 + 侧边栏图标三个 slot 注册、内联样式 |
 | `index.js` | Host 半边（本插件不需要 Host 能力，留空） |
 | `cordis.patch.yml` | 把 `session-filter` 条目插入 profile 组合 |
 | `package.json` | 包元信息 + `dsh.client` / `dsh.bundle` 声明 |
@@ -100,12 +99,10 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 - **面板落位**：`sidebar.panellist` 的 `id` 与 `main` 的 `key` 复用同一个字符串
   `session-filter`，侧边栏图标因此直接指向本面板；`order: 30` 排在插件、定时任务、
   上下文之后。
-- **标题行落位**：`sidebar.workspaces` 是单例插槽且没有标题行插槽，所以两个图标注册在
-  `sidebar.footer.action`（一个 0 尺寸的挂载点），再用 `position: fixed` 覆盖到测得的标题行
-  位置：`[data-slot="sidebar.workspaces"] [class*="_sectionHeader"]` 与其中
-  `[class*="_searchSlot"]` 的 `getBoundingClientRect()` 决定 `top` 与 `right`。类名后缀由
-  CSS Modules 稳定提供（前缀哈希会变），配合 `MutationObserver` + `resize` 跟随折叠、
-  搜索展开与窗口缩放；测不到就退回 `sidebar.footer.action` 的常规 chip 条。
+- **筛选条落位**：注册在 `sidebar.footer.action`（设置按钮上方的一行槽位），整条占满宽度；
+  弹层用 `position: fixed` 贴在 chip 上方（`bottom: innerHeight - rect.top + 8`），因为侧边栏
+  容器 `overflow` 会裁掉绝对定位的浮层。宽版渲染两个 chip，窄条（`wide: false`）渲染一个
+  36px 圆按钮。
 - **数据来源**：`main` slot 提供的标准 props — `useSessions`（会话快照）、
   `useWorkspaces`（工作区快照）、`useSessionStatus`（状态 Map），全部是
   `SnapshotSelectorHook`，必须传 selector。
@@ -122,7 +119,7 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 `sidebar.footer.action`、`sidebar.panellist` 与 `main` 三个宿主都已挂上
 `session-filter`（运行中的页面里生效）。
 再用一个按树路径实现 hooks 的迷你 React 骨架渲染真实组件、驱动 chip 与下拉，
-覆盖了左下筛选条（chip 计数、弹层开合、行点击、窄条模式）与完整面板
+覆盖了底部筛选条（chip 计数、弹层开合、行点击、窄条模式）与完整面板
 （计数、分组、状态/时间筛选、菜单开合、空状态）两条路径的断言。
 
 DSH 的检查工具没有渲染/截图能力，所以像素级外观需要你在正在运行的窗口里点左侧
