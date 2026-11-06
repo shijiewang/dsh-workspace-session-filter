@@ -906,7 +906,7 @@ window.__ModuleLoader__.load({
 .dwsf-emptyHint{color:var(--dsw-alias-label-caption);font-size:13px;line-height:20px}
 [data-slot="sidebar.footer.action"]{display:flex !important;flex-wrap:wrap;width:100%;min-width:0;align-items:flex-start;column-gap:0;row-gap:0}
 .dwsf-foot{flex:1 0 100%;display:flex;align-items:center;min-width:0;max-width:100%;margin:8px 0 2px;padding:0 2px}
-.dwsf-footChips{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 2px;min-width:0;width:100%}
+.dwsf-footChips{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px 2px;min-width:0;width:100%}
 .dwsf-footChip{flex:0 1 auto;min-width:0;max-width:100%;height:28px;display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:0 7px;border:0;border-radius:999px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:18px;white-space:nowrap;cursor:pointer;overflow:hidden}
 .dwsf-footChip:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dwsf-footChip[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
