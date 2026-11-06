@@ -49,6 +49,9 @@ profile 目录里的 pnpm，装完再读包里的 `dsh.bundle.patch` 自动登�
 `dsh.profile.bundles`，因此不用手改 profile 的 `package.json`）：
 
 ```bash
+# 从 npm registry 装（1.0.1 起可用，最省事）
+dsh plugin --profile desktop add dsh-workspace-session-filter
+
 # 从 GitHub 装（pnpm 会锁定解析到的 commit）
 dsh plugin --profile desktop add github:shijiewang/dsh-workspace-session-filter
 
@@ -80,8 +83,9 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 
 卸载：`plugin_manager({ action: "remove_bundle", target: "dsh-workspace-session-filter" })`。
 
-> 包名 `dsh-workspace-session-filter` 与仓库同名，`dsh plugin` 用 git spec、tarball 或
-> 目录路径都能装；发布到 npm registry 后，也可以直接把包名交给 `dsh plugin add`。
+> 包名 `dsh-workspace-session-filter` 与仓库同名。截至 1.0.1，npm registry、
+> GitHub、release tarball、本地目录四种来源都能装；registry 上是 `npm publish` 发出的
+> 正式版本，`repository` 字段指回本仓库。
 
 ## 结构
 
