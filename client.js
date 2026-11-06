@@ -31,6 +31,8 @@ window.__ModuleLoader__.load({
       'filter.awaiting': '等待确认',
       'filter.awaitingShort': '待确认',
       'filter.unread': '未读',
+      'settings.nav': '在左侧导航显示',
+      'settings.navHint': '打开后左侧导航多一个「会话筛选」入口，可打开完整筛选面板；关闭时侧边栏底部的筛选条照常可用。',
       'filter.more': '更多',
       'filter.reset': '清除筛选',
       'filter.aria': '会话筛选条件',
@@ -70,6 +72,8 @@ window.__ModuleLoader__.load({
       'filter.awaiting': 'Awaiting confirmation',
       'filter.awaitingShort': 'Awaiting',
       'filter.unread': 'Unread',
+      'settings.nav': 'Show in the left navigation',
+      'settings.navHint': 'Adds a Session filter entry to the left navigation that opens the full panel. The filter bar at the foot of the sidebar keeps working either way.',
       'filter.more': 'More',
       'filter.reset': 'Clear filters',
       'filter.aria': 'Session filters',
@@ -230,6 +234,55 @@ window.__ModuleLoader__.load({
       } catch (error) {
         return null
       }
+    }
+
+    /* ---------------------------- navigation toggle --------------------------- *
+     * The left-nav icon is opt-in: the sidebar already carries four panel cells and
+     * most visits start at the sidebar-foot bar. The preference shares the same
+     * localStorage store as the seen stamps, and the registration follows it, so a
+     * hidden entry leaves no empty cell behind the panel list.
+     * ------------------------------------------------------------------ */
+    const NAV_KEY = 'dsh-workspace-session-filter:nav.v1'
+    const navState = { value: null, listeners: new Set() }
+
+    function navStorage() {
+      try {
+        return typeof localStorage === 'undefined' ? null : localStorage
+      } catch (error) {
+        return null
+      }
+    }
+
+    function navVisible() {
+      if (navState.value !== null) return navState.value
+      const store = navStorage()
+      let value = false
+      if (store) {
+        try { value = store.getItem(NAV_KEY) === '1' } catch (error) { value = false }
+      }
+      navState.value = value
+      return value
+    }
+
+    function setNavVisible(next) {
+      const value = next === true
+      if (navVisible() === value) return
+      navState.value = value
+      const store = navStorage()
+      if (store) {
+        try {
+          if (value) store.setItem(NAV_KEY, '1')
+          else store.removeItem(NAV_KEY)
+        } catch (error) { /* storage may be full or blocked */ }
+      }
+      for (const listener of Array.from(navState.listeners)) {
+        try { listener(value) } catch (error) { console.error('[workspace-session-filter] nav listener failed', error) }
+      }
+    }
+
+    function subscribeNav(listener) {
+      navState.listeners.add(listener)
+      return () => { navState.listeners.delete(listener) }
     }
 
     function loadSeen() {
@@ -811,6 +864,39 @@ window.__ModuleLoader__.load({
       return h('div', { ref: rootRef, className: 'dwsf-foot' }, popover, filters)
     }
 
+    /**
+     * The plugin's own page inside Settings → Plugins. One switch owns the
+     * optional left-nav entry; the sidebar-foot filter bar is unaffected.
+     */
+    function SettingsPage(props) {
+      const t = props.t
+      const [on, setOn] = useState(navVisible)
+
+      useEffect(() => subscribeNav((value) => setOn(value)), [])
+
+      return h('div', { className: 'dwsf-settings' },
+        h('div', { className: 'dwsf-settingRow' },
+          h('div', { className: 'dwsf-settingCopy' },
+            h('span', { className: 'dwsf-settingLabel' }, t('settings.nav')),
+            h('span', { className: 'dwsf-settingHint' }, t('settings.navHint'))
+          ),
+          h('button', {
+            type: 'button',
+            role: 'switch',
+            className: 'dwsf-switch',
+            'aria-checked': on ? 'true' : 'false',
+            'aria-label': t('settings.nav'),
+            'data-on': on ? 'true' : 'false',
+            onClick: () => setNavVisible(!on),
+          },
+            h('span', { className: 'dwsf-switchTrack', 'data-on': on ? 'true' : 'false', 'aria-hidden': 'true' },
+              h('span', { className: 'dwsf-switchThumb' })
+            )
+          )
+        )
+      )
+    }
+
     /** Sidebar entry: guards the standard hooks and keeps a crash out of the sidebar. */
     function FooterEntry(props) {
       const ready = typeof props.useSessions === 'function'
@@ -919,6 +1005,17 @@ window.__ModuleLoader__.load({
 .dwsf-footRailButton:hover,.dwsf-footRailButton[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover)}
 .dwsf-footRailButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}
 .dwsf-footBadge{position:absolute;top:4px;right:2px;min-width:15px;height:15px;padding:0 3px;border-radius:999px;background:var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-label-primary-inverted);font-size:9px;line-height:15px;text-align:center;font-variant-numeric:tabular-nums}
+.dwsf-settings{display:flex;flex-direction:column;gap:8px;color:var(--dsw-alias-label-primary)}
+.dwsf-settingRow{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:12px 14px;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1)}
+.dwsf-settingCopy{display:flex;flex-direction:column;gap:2px;min-width:0}
+.dwsf-settingLabel{font-size:13px;line-height:20px}
+.dwsf-settingHint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.dwsf-switch{flex:none;margin-top:1px;padding:0;border:0;background:0 0;cursor:pointer;border-radius:999px;line-height:0}
+.dwsf-switch:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
+.dwsf-switchTrack{display:inline-flex;align-items:center;width:34px;height:20px;padding:2px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l2);transition:background .16s ease,box-shadow .16s ease}
+.dwsf-switchTrack[data-on="true"]{background:var(--dsw-alias-brand-primary);box-shadow:none}
+.dwsf-switchThumb{width:16px;height:16px;border-radius:999px;background:var(--dsw-alias-bg-base);transition:transform .16s ease}
+.dwsf-switchTrack[data-on="true"] .dwsf-switchThumb{transform:translateX(14px)}
 .dwsf-pop{position:fixed;z-index:60;display:flex;flex-direction:column;width:min(340px,calc(100vw - 24px));max-height:60vh;border-radius:12px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);overflow:hidden}
 .dwsf-popHead{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:10px 12px 4px}
 .dwsf-popTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:20px}
@@ -986,12 +1083,43 @@ window.__ModuleLoader__.load({
           inject: () => ({ t, onOpen: openSession }),
         }, FooterEntry)), 'workspace-session-filter: sidebar footer')
 
-        ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-          name: 'sidebar.panellist',
+        ctx.effect(() => ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
+          name: 'settings.plugins.tab',
           id: PANEL_ID,
           order: 30,
           label: () => t('panel.label'),
-        }, PanelGlyph)), 'workspace-session-filter: icon')
+          inject: () => ({ t }),
+        }, SettingsPage)), 'workspace-session-filter: settings page')
+
+        /* The nav entry is opt-in, so its registration is created and dropped while
+         * the page runs instead of being decided once at apply time. */
+        ctx.effect(() => {
+          let dispose = null
+          const sync = () => {
+            if (navVisible() && !dispose) {
+              dispose = ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+                name: 'sidebar.panellist',
+                id: PANEL_ID,
+                order: 30,
+                label: () => t('panel.label'),
+              }, PanelGlyph))
+              return
+            }
+            if (!navVisible() && dispose) {
+              dispose()
+              dispose = null
+            }
+          }
+          const off = subscribeNav(sync)
+          sync()
+          return () => {
+            off()
+            if (dispose) {
+              dispose()
+              dispose = null
+            }
+          }
+        }, 'workspace-session-filter: nav icon')
       },
     }
   },

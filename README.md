@@ -6,7 +6,8 @@
 
 1. **侧边栏底部的筛选条** —— 设置按钮上方单独一行，`运行中` / `待确认` / `未读` 三个
    chip（各自带命中数）。点一下向上弹出按工作区分组的会话列表，点行直接进会话，是日常主入口；
-2. 侧边栏面板列表里的「会话筛选」图标 —— 打开中间栏的完整视图，顶部是
+2. 侧边栏面板列表里的「会话筛选」图标（**默认不显示**）—— 在
+   `设置 → 插件 → 会话筛选` 里打开开关后出现，指向中间栏的完整视图，顶部是
    `全部 / 运行中 / 等待确认 / 未读 / 更多` 筛选器，`更多` 里是 `最近一天 / 最近三天 /
    最近一周 / 最近一个月`（外加 `不限时间`）。
 
@@ -80,11 +81,12 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 装好后：
 
 - 侧边栏**底部**（设置按钮上方、单独一行）出现 `运行中 N` / `待确认 N` / `未读 N` 筛选条；
-- 侧边栏面板列表里出现「会话筛选」图标，指向中间栏的完整视图。
+- 面板列表里**不会**自动多出图标；需要完整视图时，到
+  `设置 → 插件 → 会话筛选` 打开「在左侧导航显示」，图标才出现（开关状态存本地，刷新后保留）。
 
 卸载：`plugin_manager({ action: "remove_bundle", target: "dsh-workspace-session-filter" })`。
 
-> 包名 `dsh-workspace-session-filter` 与仓库同名。截至 1.0.3，npm registry、
+> 包名 `dsh-workspace-session-filter` 与仓库同名。截至 1.0.6，npm registry、
 > GitHub、release tarball、本地目录四种来源都能装；registry 上是 `npm publish` 发出的
 > 正式版本，`repository` 字段指回本仓库。
 
@@ -92,7 +94,7 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 
 | 文件 | 作用 |
 | --- | --- |
-| `client.js` | 全部界面逻辑：字典、图标、底部筛选条 + 面板 + 侧边栏图标三个 slot 注册、内联样式 |
+| `client.js` | 全部界面逻辑：字典、图标、底部筛选条 / 面板 / 设置页三处注册 + 按开关动态注册的侧边栏图标、内联样式 |
 | `index.js` | Host 半边（本插件不需要 Host 能力，留空） |
 | `cordis.patch.yml` | 把 `session-filter` 条目插入 profile 组合 |
 | `package.json` | 包元信息 + `dsh.client` / `dsh.bundle` 声明 |
@@ -104,6 +106,9 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 - **面板落位**：`sidebar.panellist` 的 `id` 与 `main` 的 `key` 复用同一个字符串
   `session-filter`，侧边栏图标因此直接指向本面板；`order: 30` 排在插件、定时任务、
   上下文之后。
+- **导航图标可关**：注册在 `设置 → 插件` 的 `settings.plugins.tab` 页面只放一个开关；
+  偏好存 `localStorage`（键 `dsh-workspace-session-filter:nav.v1`，默认关），
+  开关变化时**注销/重建** `sidebar.panellist` 注册，因此关掉时不会留下一个空图标位。
 - **筛选条落位**：注册在 `sidebar.footer.action`（设置按钮上方的一行槽位），整条占满宽度；
   弹层用 `position: fixed` 贴在 chip 上方（`bottom: innerHeight - rect.top + 8`），因为侧边栏
   容器 `overflow` 会裁掉绝对定位的浮层。宽版渲染三个 chip，窄条（`wide: false`）渲染一个

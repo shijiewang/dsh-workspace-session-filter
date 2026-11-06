@@ -166,20 +166,34 @@ const ctx = {
   },
   effect(callback) { const dispose = callback(); return dispose || (() => {}) },
   slots: {
-    inject(slot, callback) { currentSlot = slot; callback(); return () => {} },
-    register(options, component) { registered.entries.push([currentSlot, options, component]); return () => {} },
+    inject(slot, callback) {
+      const previous = currentSlot
+      currentSlot = slot
+      const dispose = callback()
+      currentSlot = previous
+      return () => { if (typeof dispose === 'function') dispose() }
+    },
+    register(options, component) {
+      const entry = [currentSlot, options, component]
+      registered.entries.push(entry)
+      return () => {
+        const index = registered.entries.indexOf(entry)
+        if (index >= 0) registered.entries.splice(index, 1)
+      }
+    },
   },
 }
 plugin.apply(ctx)
 
 const panelEntry = registered.entries.find(([slot]) => slot === 'main')
-const iconEntry = registered.entries.find(([slot]) => slot === 'sidebar.panellist')
+const settingsEntry = registered.entries.find(([slot]) => slot === 'settings.plugins.tab')
 assert.ok(panelEntry, 'main registration missing')
-assert.ok(iconEntry, 'sidebar.panellist registration missing')
+assert.ok(settingsEntry, 'settings.plugins.tab registration missing')
 assert.strictEqual(panelEntry[1].key, 'session-filter')
-assert.strictEqual(iconEntry[1].id, 'session-filter')
-assert.strictEqual(typeof iconEntry[1].label, 'function')
-assert.strictEqual(iconEntry[1].order, 30)
+assert.strictEqual(settingsEntry[1].id, 'session-filter')
+assert.strictEqual(typeof settingsEntry[1].label, 'function')
+assert.ok(!registered.entries.some(([slot]) => slot === 'sidebar.panellist'),
+  'the nav icon must stay unregistered until the switch is turned on')
 assert.strictEqual(registered.dicts.get('zh')['panel.title'], '工作区会话')
 assert.ok(registered.styles[0].includes('.dwsf-page'), 'stylesheet missing page rule')
 
@@ -292,10 +306,37 @@ buttonsWithClass(tree, 'dwsf-row')[0].props.onClick()
 assert.strictEqual(registered.opened.length, 1, 'row click opens a session')
 assert.strictEqual(typeof registered.opened[0], 'string')
 
+/* --------------------------- settings switch ---------------------------- */
+hookStore.clear()
+let settingsTree = renderInto(settingsEntry[2])
+const switchNode = findAll(settingsTree, (n) => n.tag === 'button' && n.props.role === 'switch')[0]
+assert.ok(switchNode, 'settings page needs a switch')
+assert.strictEqual(switchNode.props['aria-checked'], 'false')
+assert.strictEqual(textOf(settingsTree).includes('在左侧导航显示'), true)
+
+switchNode.props.onClick()
+assert.ok(registered.entries.some(([slot]) => slot === 'sidebar.panellist'),
+  'turning the switch on registers the nav icon')
+assert.strictEqual(seenStore.get('dsh-workspace-session-filter:nav.v1'), '1')
+
+const iconEntry = registered.entries.find(([slot]) => slot === 'sidebar.panellist')
+assert.strictEqual(iconEntry[1].id, 'session-filter')
+assert.strictEqual(iconEntry[1].order, 30)
+assert.strictEqual(typeof iconEntry[1].label, 'function')
+
 const icon = renderElement(createElement(iconEntry[2], { size: 22, active: true }), 'icon')
 assert.strictEqual(icon.tag, 'svg')
 assert.strictEqual(icon.props.width, 22)
 assert.strictEqual(icon.children.length, 3)
+
+hookStore.clear()
+settingsTree = renderInto(settingsEntry[2])
+const switchAgain = findAll(settingsTree, (n) => n.tag === 'button' && n.props.role === 'switch')[0]
+assert.strictEqual(switchAgain.props['aria-checked'], 'true')
+switchAgain.props.onClick()
+assert.ok(!registered.entries.some(([slot]) => slot === 'sidebar.panellist'),
+  'turning the switch off unregisters the nav icon')
+assert.strictEqual(seenStore.has('dsh-workspace-session-filter:nav.v1'), false)
 
 /* ------------------------------ footer bar ------------------------------ */
 const footEntry = registered.entries.find(([slot]) => slot === 'sidebar.footer.action')
