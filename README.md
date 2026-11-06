@@ -84,7 +84,7 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 
 卸载：`plugin_manager({ action: "remove_bundle", target: "dsh-workspace-session-filter" })`。
 
-> 包名 `dsh-workspace-session-filter` 与仓库同名。截至 1.0.1，npm registry、
+> 包名 `dsh-workspace-session-filter` 与仓库同名。截至 1.0.2，npm registry、
 > GitHub、release tarball、本地目录四种来源都能装；registry 上是 `npm publish` 发出的
 > 正式版本，`repository` 字段指回本仓库。
 
