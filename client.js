@@ -210,11 +210,79 @@ window.__ModuleLoader__.load({
       return parts.length > 0 ? parts[parts.length - 1] : ''
     }
 
+    /* ------------------------------------------------------------------ *
+     * Last-seen stamps
+     *
+     * The shipped status map only flags a turn that finished while the session
+     * was not on screen (`completionUnread`). Everything else that bumps a
+     * session — queued work, a subagent settling, an edit made elsewhere —
+     * leaves `updatedAt` moving without any flag, so the "unread" dimension
+     * remembers when this panel last saw a session and counts newer activity.
+     * The map lives in localStorage so it survives reloads; an unknown session
+     * is baselined on first sight, which keeps a fresh install quiet.
+     * ------------------------------------------------------------------ */
+    const SEEN_KEY = 'dsh-workspace-session-filter:seen.v1'
+    const seenCache = { loaded: false, map: {}, timer: null }
+
+    function seenStorage() {
+      try {
+        return typeof localStorage === 'undefined' ? null : localStorage
+      } catch (error) {
+        return null
+      }
+    }
+
+    function loadSeen() {
+      if (seenCache.loaded) return seenCache.map
+      seenCache.loaded = true
+      const store = seenStorage()
+      if (!store) return seenCache.map
+      try {
+        const parsed = JSON.parse(store.getItem(SEEN_KEY) || 'null')
+        if (parsed && typeof parsed === 'object') seenCache.map = parsed
+      } catch (error) {
+        seenCache.map = {}
+      }
+      return seenCache.map
+    }
+
+    function flushSeen() {
+      const store = seenStorage()
+      if (!store) return
+      try {
+        const ids = Object.keys(seenCache.map)
+        if (ids.length > 400) {
+          ids.sort((left, right) => (seenCache.map[right] || 0) - (seenCache.map[left] || 0))
+          for (const id of ids.slice(400)) delete seenCache.map[id]
+        }
+        store.setItem(SEEN_KEY, JSON.stringify(seenCache.map))
+      } catch (error) {
+        /* quota or private mode: the bookkeeping is best effort */
+      }
+    }
+
+    function markSeen(sessionId, stamp) {
+      if (!(stamp > 0)) return
+      const map = loadSeen()
+      const previous = map[sessionId]
+      if (previous !== undefined && previous >= stamp) return
+      map[sessionId] = stamp
+      if (seenCache.timer === null && typeof setTimeout === 'function') {
+        seenCache.timer = setTimeout(() => { seenCache.timer = null; flushSeen() }, 400)
+      }
+    }
+
     /** One flat row model, mirroring the shipped sidebar's status precedence. */
-    function buildRow(summary, status, subagents, t) {
+    function buildRow(summary, status, subagents, t, lastSeen) {
       const kind = pendingKindOf(status)
       const running = status && status.running !== undefined ? status.running === true : Boolean(summary.running)
       const completed = Boolean(status && status.completionUnread === true)
+      const activityNew = completed !== true
+        && kind === undefined
+        && running !== true
+        && subagents === 0
+        && lastSeen !== undefined
+        && (Number(summary.updatedAt) || 0) > lastSeen
       let dot = 'idle'
       let label = ''
       if (kind !== undefined) {
@@ -231,6 +299,8 @@ window.__ModuleLoader__.load({
       } else if (completed) {
         dot = 'done'
         label = t('filter.unread')
+      } else if (activityNew) {
+        label = t('filter.unread')
       }
       return {
         id: summary.id,
@@ -241,7 +311,7 @@ window.__ModuleLoader__.load({
         label,
         awaiting: kind !== undefined,
         running: running || subagents > 0,
-        unread: completed,
+        unread: completed || activityNew,
       }
     }
 
@@ -270,7 +340,14 @@ window.__ModuleLoader__.load({
         if (archived.has(summary.id)) continue
         if (cutoff && !(summary.updatedAt >= cutoff)) continue
         const status = statuses ? statuses.get(summary.id) : undefined
-        const row = buildRow(summary, status, runningSubagents(list, summary.id, statuses || new Map()), t)
+        const stamp = Number(summary.updatedAt) || 0
+        const seen = loadSeen()
+        let lastSeen = seen[summary.id]
+        if (summary.id === currentId || lastSeen === undefined) {
+          markSeen(summary.id, stamp)
+          if (lastSeen === undefined) lastSeen = stamp
+        }
+        const row = buildRow(summary, status, runningSubagents(list, summary.id, statuses || new Map()), t, lastSeen)
         rows.set(summary.id, row)
         base.push(row)
       }
@@ -509,7 +586,10 @@ window.__ModuleLoader__.load({
 
       const now = Date.now()
       const view = deriveView(props, statusFilter, range, now)
-      const onOpen = props.onOpen
+      const onOpen = (sessionId) => {
+        markSeen(sessionId, Date.now())
+        props.onOpen(sessionId)
+      }
       const filtered = statusFilter !== 'all' || range !== null
 
       return h('div', { className: 'dwsf-page' },
@@ -664,6 +744,7 @@ window.__ModuleLoader__.load({
       const now = Date.now()
       const view = deriveView(props, mode, null, now)
       const onOpen = (sessionId) => {
+        markSeen(sessionId, Date.now())
         setOpen(false)
         props.onOpen(sessionId)
       }

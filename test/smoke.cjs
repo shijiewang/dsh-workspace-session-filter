@@ -111,8 +111,14 @@ const buttonByText = (root, text) => buttonsWithClass(root, 'dwsf-filter').conca
 /* --------------------------------- module -------------------------------- */
 const source = fs.readFileSync(FILE, 'utf8')
 let spec = null
+const seenStore = new Map()
 const sandbox = {
   window: { __ModuleLoader__: { load(value) { spec = value } } },
+  localStorage: {
+    getItem: (key) => (seenStore.has(key) ? seenStore.get(key) : null),
+    setItem: (key, value) => { seenStore.set(key, String(value)) },
+    removeItem: (key) => { seenStore.delete(key) },
+  },
   document: {
     createElement: () => ({ dataset: {}, remove() {}, textContent: '' }),
     head: { appendChild() {} },
@@ -179,6 +185,11 @@ assert.ok(registered.styles[0].includes('.dwsf-page'), 'stylesheet missing page 
 
 /* --------------------------------- fixtures ------------------------------ */
 const now = Date.now()
+/* s7 is an old session whose last-seen stamp sits just before its last update,
+ * so the unread dimension has to catch it without any native completion flag. */
+seenStore.set('dsh-workspace-session-filter:seen.v1', JSON.stringify({
+  s7: now - 10 * 86400000 - 60000,
+}))
 const summary = (id, title, extra) => Object.assign({
   id, displayTitle: title, title, running: false, retainedBy: {}, blank: false, updatedAt: now - 5 * 60000,
 }, extra)
@@ -223,7 +234,7 @@ function renderInto(component, extraProps) {
 
 let tree = renderInto(panelEntry[2])
 let chips = buttonsWithClass(tree, 'dwsf-filter')
-assert.deepStrictEqual(chips.map((n) => textOf(n).trim()), ['全部5', '运行中1', '等待确认1', '未读1', '更多'])
+assert.deepStrictEqual(chips.map((n) => textOf(n).trim()), ['全部5', '运行中1', '等待确认1', '未读2', '更多'])
 let rows = buttonsWithClass(tree, 'dwsf-row')
 assert.strictEqual(rows.length, 5, 'archived / subagent / non-current blank excluded')
 let groups = findAll(tree, (n) => n.props.className === 'dwsf-group')
@@ -297,7 +308,7 @@ const renderFoot = (wide) => renderElement(
   createElement(footEntry[2], Object.assign({}, props, { wide })), 'foot')
 let foot = renderFoot(true)
 let footChips = buttonsWithClass(foot, 'dwsf-footChip')
-assert.deepStrictEqual(footChips.map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读1'], 'footer shows running + awaiting + unread')
+assert.deepStrictEqual(footChips.map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读2'], 'footer shows running + awaiting + unread')
 assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length, 0, 'popover closed by default')
 
 footChips[0].props.onClick()
@@ -328,9 +339,11 @@ assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length
 buttonsWithClass(foot, 'dwsf-footChip')[2].props.onClick()
 foot = renderFoot(true)
 footRows = buttonsWithClass(foot, 'dwsf-row')
-assert.strictEqual(footRows.length, 1, 'unread filter inside the footer list')
-assert.ok(textOf(footRows[0]).includes('Stray session'))
-assert.ok(textOf(footRows[0]).includes('未读'), 'unread rows carry the unread label')
+assert.strictEqual(footRows.length, 2, 'unread filter covers completion flags and newer activity')
+const unreadTitles = footRows.map((node) => textOf(node))
+assert.ok(unreadTitles.some((text) => text.includes('Stray session')), 'completion-unread session listed')
+assert.ok(unreadTitles.some((text) => text.includes('Ancient session')), 'activity-unread session listed')
+assert.ok(unreadTitles.every((text) => text.includes('未读')), 'unread rows carry the unread label')
 assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length, 1)
 buttonsWithClass(foot, 'dwsf-footChip')[2].props.onClick()
 foot = renderFoot(true)
@@ -341,8 +354,9 @@ assert.strictEqual(buttonsWithClass(rail, 'dwsf-footRailButton').length, 1, 'col
 assert.strictEqual(buttonsWithClass(rail, 'dwsf-footChip').length, 0, 'rail hides the text chips')
 buttonsWithClass(rail, 'dwsf-footRailButton')[0].props.onClick()
 rail = renderFoot(false)
-assert.deepStrictEqual(buttonsWithClass(rail, 'dwsf-footChip').map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读1'])
-assert.strictEqual(buttonsWithClass(rail, 'dwsf-row').length, 1, 'rail popover lists the filtered sessions')
+assert.deepStrictEqual(buttonsWithClass(rail, 'dwsf-footChip').map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读2'])
+assert.strictEqual(buttonsWithClass(rail, 'dwsf-row').length, 2, 'rail popover keeps the active unread filter')
+assert.ok(buttonsWithClass(rail, 'dwsf-row').every((node) => textOf(node).includes('未读')))
 
 
 statusMap.clear()
