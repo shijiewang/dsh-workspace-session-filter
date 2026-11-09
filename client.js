@@ -878,7 +878,7 @@ window.__ModuleLoader__.load({
                 'data-state': incidentTone(entry.status),
                 'aria-hidden': 'true',
               }),
-              h('span', { className: 'dwsf-statusRecentText' }, shorten(entry.title || entry.fullTitle || '', 52)),
+              h('span', { className: 'dwsf-statusRecentText' }, entry.title || entry.fullTitle || ''),
               h('span', { className: 'dwsf-statusRecentWhen' },
                 `${incidentLabel(entry.status, t)}${Number.isFinite(updated) && updated > 0 ? ` · ${dateOf(updated)}` : ''}`)
             )
@@ -895,6 +895,7 @@ window.__ModuleLoader__.load({
       const t = props.t
       const { info, gone } = useServiceStatus()
       const [hover, setHover] = useState(false)
+      const [spot, setSpot] = useState(null)
       const state = gone || !info ? 'unknown' : (info.state || 'unknown')
       const stateLabel = state === 'ok' ? t('status.serviceOk')
         : state === 'degraded' ? t('status.serviceDegraded')
@@ -904,15 +905,33 @@ window.__ModuleLoader__.load({
       const open = () => {
         try { window.open('https://status.deepseek.com/', '_blank', 'noopener,noreferrer') } catch (error) { /* popup blocked */ }
       }
-      const card = hover
-        ? h('div', { className: 'dwsf-statusCard', role: 'tooltip' },
+      /**
+       * The status button sits at the far right of a narrow sidebar, so an
+       * absolutely positioned card would grow past the window edge and get
+       * clipped. Anchor it to the button in viewport coordinates and clamp it
+       * inside the window instead.
+       */
+      const place = (node) => {
+        if (!node || typeof window === 'undefined') return
+        const rect = node.getBoundingClientRect()
+        const width = Math.max(200, Math.min(320, window.innerWidth - 16))
+        const left = Math.min(Math.max(rect.right - width, 8), window.innerWidth - width - 8)
+        const bottom = Math.min(window.innerHeight - rect.top + 8, window.innerHeight - 16)
+        setSpot({ left: Math.round(left), bottom: Math.round(bottom), width: Math.round(width) })
+      }
+      const card = hover && spot
+        ? h('div', {
+            className: 'dwsf-statusCard',
+            role: 'tooltip',
+            style: { left: `${spot.left}px`, bottom: `${spot.bottom}px`, width: `${spot.width}px` },
+          },
             h('div', { className: 'dwsf-statusHead' },
               h('span', { className: 'dwsf-statusDot', 'data-state': state, 'aria-hidden': 'true' }),
               h('span', { className: 'dwsf-statusName' }, name)
             ),
-            info ? (info.headline ? h('div', { className: 'dwsf-statusLine' }, shorten(info.headline, 110)) : null) : null,
+            info ? (info.headline ? h('div', { className: 'dwsf-statusLine' }, info.headline) : null) : null,
             info && info.state !== 'ok' && info.detail
-              ? h('div', { className: 'dwsf-statusLine' }, shorten(info.detail, 140))
+              ? h('div', { className: 'dwsf-statusLine' }, info.detail)
               : null,
             info ? null : h('div', { className: 'dwsf-statusLine' }, t('status.offline')),
             info ? recentIncidents(info, t) : null,
@@ -932,9 +951,9 @@ window.__ModuleLoader__.load({
           'aria-describedby': undefined,
           title: name,
           onClick: open,
-          onMouseEnter: () => setHover(true),
+          onMouseEnter: (event) => { place(event.currentTarget); setHover(true) },
           onMouseLeave: () => setHover(false),
-          onFocus: () => setHover(true),
+          onFocus: (event) => { place(event.currentTarget); setHover(true) },
           onBlur: () => setHover(false),
         },
           h('span', { className: 'dwsf-statusDot', 'data-state': state, 'aria-hidden': 'true' })
@@ -1256,20 +1275,20 @@ window.__ModuleLoader__.load({
 .dwsf-statusDot[data-state="ok"]{background:var(--dsw-alias-state-success-primary)}
 .dwsf-statusDot[data-state="degraded"]{background:var(--dsw-alias-state-warn-primary)}
 .dwsf-statusDot[data-state="down"]{background:var(--dsw-alias-state-error-primary)}
-.dwsf-statusCard{position:absolute;right:0;bottom:calc(100% + 8px);z-index:70;display:flex;flex-direction:column;gap:3px;width:max-content;max-width:min(320px,78vw);padding:8px 10px;border-radius:10px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-elevation-prominent);text-align:left}
+.dwsf-statusCard{position:fixed;z-index:80;display:flex;flex-direction:column;gap:3px;max-height:min(72vh,460px);overflow-y:auto;overscroll-behavior:contain;padding:9px 11px;border-radius:10px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-elevation-prominent);text-align:left}
 .dwsf-statusHead{display:flex;align-items:center;gap:6px}
 .dwsf-statusName{font-size:12px;line-height:18px;font-weight:500;color:var(--dsw-alias-label-primary)}
 .dwsf-statusLine{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dwsf-statusMeta{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
 .dwsf-statusRecent{display:flex;flex-direction:column;gap:3px;margin-top:5px;padding-top:6px;border-top:.5px solid var(--dsw-alias-border-l2)}
 .dwsf-statusRecentHead{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
-.dwsf-statusRecentRow{display:flex;align-items:center;gap:5px}
-.dwsf-statusRecentDot{flex:0 0 auto;width:6px;height:6px;border-radius:999px;background:var(--dsw-alias-label-caption)}
+.dwsf-statusRecentRow{display:flex;align-items:flex-start;gap:6px}
+.dwsf-statusRecentDot{flex:0 0 auto;width:6px;height:6px;margin-top:5px;border-radius:999px;background:var(--dsw-alias-label-caption)}
 .dwsf-statusRecentDot[data-state="ok"]{background:var(--dsw-alias-state-success-primary)}
 .dwsf-statusRecentDot[data-state="degraded"]{background:var(--dsw-alias-state-warn-primary)}
 .dwsf-statusRecentDot[data-state="down"]{background:var(--dsw-alias-state-error-primary)}
-.dwsf-statusRecentText{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
-.dwsf-statusRecentWhen{flex:0 0 auto;font-size:10px;line-height:16px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums}
+.dwsf-statusRecentText{flex:1 1 auto;min-width:0;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:normal;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dwsf-statusRecentWhen{flex:0 0 auto;margin-left:auto;padding-left:6px;font-size:10px;line-height:16px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums}
 .dwsf-footRail{flex:0 0 auto;display:flex;justify-content:center;width:100%}
 .dwsf-footRailButton{position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:0;border-radius:50%;background:0 0;color:var(--dsw-alias-label-primary);cursor:pointer}
 .dwsf-footRailButton:hover,.dwsf-footRailButton[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover)}
