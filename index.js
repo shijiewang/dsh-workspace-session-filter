@@ -18,7 +18,7 @@ import * as zlib from 'node:zlib'
 import {
   existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { request as httpsRequest } from 'node:https'
 import { promises as dns } from 'node:dns'
@@ -552,11 +552,51 @@ function digestMarkdown(digests, meta) {
 
 const DIGEST_PREFIX = 'dsh-session-digest-'
 
+/**
+ * The home this Host process belongs to. The desktop app runs from
+ * `<home>/profiles/<name>`, a `dsh web` profile from its own home, and
+ * DSH_HOME overrides both. Digests stay inside it so two profiles never
+ * share a folder.
+ */
+function homeFromProfilePath(value) {
+  if (typeof value !== 'string' || value === '') return null
+  const marker = `${sep}profiles${sep}`
+  const at = value.lastIndexOf(marker)
+  if (at > 0) return value.slice(0, at)
+  return null
+}
+
+function activeHome() {
+  const profileDir = process.env.DSH_PROFILE_DIR
+  const fromProfile = homeFromProfilePath(profileDir)
+  if (fromProfile) return fromProfile
+  /* A `dsh web` process usually has no DSH_* variables; its bundle still sits
+   * inside `<home>/profiles/<name>/node_modules/<package>/index.js`. */
+  const fromModule = homeFromProfilePath(moduleDirectory())
+  if (fromModule) return fromModule
+  const fromEnv = process.env.DSH_HOME
+  if (typeof fromEnv === 'string' && fromEnv !== '') return fromEnv
+  return join(homedir(), '.dsh_desktop')
+}
+
+/** Directory of this module, decoded from import.meta.url. */
+function moduleDirectory() {
+  try {
+    const url = import.meta.url
+    if (typeof url !== 'string' || !url.startsWith('file:')) return null
+    const path = decodeURIComponent(new URL(url).pathname)
+    return dirname(path)
+  } catch (error) {
+    return null
+  }
+}
+
+function digestFolder() {
+  return join(activeHome(), 'session-digests')
+}
+
 function digestFolders() {
-  return [
-    join(homedir(), 'Downloads'),
-    ...dataHomes().map((home) => join(home, 'session-digests')),
-  ]
+  return [digestFolder()]
 }
 
 function listDigests() {
@@ -632,8 +672,7 @@ function exportDigests(ids, titles, note) {
   const now = new Date()
   const stamp = stampLabel(now)
   const markdown = digestMarkdown(digests, { stamp, iso: now.toISOString(), note })
-  const downloads = join(homedir(), 'Downloads')
-  const target = existsSync(downloads) ? downloads : join(dataHome(), 'session-digests')
+  const target = digestFolder()
   mkdirSync(target, { recursive: true })
   const file = join(target, `dsh-session-digest-${stamp}.md`)
   writeFileSync(file, markdown, 'utf8')

@@ -58,7 +58,7 @@ window.__ModuleLoader__.load({
       'manage.trash': '移入回收站',
       'manage.empty': '没有匹配的会话',
       'manage.confirmTitle': '移入回收站？',
-      'manage.confirmBody': '会先写出一份 Markdown 摘要（{n} 个会话，保存到「下载」），再把会话目录移到 ~/.dsh_desktop/sessions/.trash/。需要恢复时把目录移回原位即可。',
+      'manage.confirmBody': '会先写出一份 Markdown 摘要（{n} 个会话，保存到当前数据目录的 session-digests/），再把会话目录移到同一数据目录的 sessions/.trash/。需要恢复时把目录移回原位即可。',
       'manage.confirmCancel': '取消',
       'manage.confirmOk': '确认移入',
       'manage.busy': '处理中…',
@@ -70,7 +70,7 @@ window.__ModuleLoader__.load({
       'manage.hint': '勾选后可导出摘要或移入回收站',
       'manage.digests': '摘要文件',
       'manage.digestsTitle': '导出的摘要文件',
-      'manage.digestsHint': '每次导出或删除会话前都会写一份 Markdown 摘要，保存在「下载」目录。',
+      'manage.digestsHint': '每次导出或删除会话前都会写一份 Markdown 摘要，保存在当前数据目录的 session-digests/。',
       'manage.digestsEmpty': '还没有导出过摘要',
       'manage.digestsLoading': '读取中…',
       'manage.digestsRefresh': '刷新',
@@ -158,7 +158,7 @@ window.__ModuleLoader__.load({
       'manage.trash': 'Move to trash',
       'manage.empty': 'No session matches',
       'manage.confirmTitle': 'Move to the trash?',
-      'manage.confirmBody': 'A Markdown digest of the {n} selected sessions is written to Downloads first, then their directories move to ~/.dsh_desktop/sessions/.trash/. Move a directory back to restore it.',
+      'manage.confirmBody': 'A Markdown digest of the {n} selected sessions is written to session-digests/ in the current data home first, then their directories move to sessions/.trash/ in the same home. Move a directory back to restore it.',
       'manage.confirmCancel': 'Cancel',
       'manage.confirmOk': 'Move them',
       'manage.busy': 'Working…',
@@ -170,7 +170,7 @@ window.__ModuleLoader__.load({
       'manage.hint': 'Tick sessions to export a digest or move them to the trash',
       'manage.digests': 'Digests',
       'manage.digestsTitle': 'Exported digests',
-      'manage.digestsHint': 'Every export or trash run writes a Markdown digest into your Downloads folder.',
+      'manage.digestsHint': 'Every export or trash run writes a Markdown digest into session-digests/ of the current data home.',
       'manage.digestsEmpty': 'No digest has been written yet',
       'manage.digestsLoading': 'Loading…',
       'manage.digestsRefresh': 'Refresh',
@@ -638,6 +638,7 @@ window.__ModuleLoader__.load({
       return {
         t,
         groups,
+        catalogIds: list.ids || [],
         counts,
         currentId,
         total: groups.reduce((sum, group) => sum + group.rows.length, 0),
@@ -890,7 +891,10 @@ window.__ModuleLoader__.load({
        * list even though the Host catalog still remembers it. */
       useEffect(() => {
         let alive = true
-        loadDiskIds().then(() => { if (alive) setTick((value) => value + 1) }, () => {})
+        const preferred = [view.currentId].concat(view.catalogIds || []).filter(Boolean)
+        pickRelay(preferred)
+          .then(() => loadDiskIds())
+          .then(() => { if (alive) setTick((value) => value + 1) }, () => {})
         return () => { alive = false }
       }, [])
 
@@ -1235,7 +1239,7 @@ window.__ModuleLoader__.load({
       return out
     }
 
-    /* The Markdown digests already written to Downloads, docked as a column so the
+    /* The Markdown digests already written for this profile, docked as a column so the
      * session list stays visible beside them. */
     function ExpandGlyph({ size = 15 }) {
       return h('svg', {
@@ -1395,6 +1399,49 @@ window.__ModuleLoader__.load({
     const STATUS_POLL_MS = 60_000
     let statusPort = null
 
+    /* Several DSH processes can run at once (the desktop app plus `dsh web`),
+     * each with its own relay and its own data home. Pick the relay that knows
+     * the session this window has open instead of trusting the first port that
+     * answers. */
+    let relayTries = 0
+
+    async function pickRelay(preferredIds) {
+      if (typeof fetch !== 'function') return null
+      if (statusPort !== null) return statusPort
+      if (relayTries >= 3) return statusPort
+      relayTries += 1
+      const wanted = new Set((preferredIds || []).map(bareSessionId).filter((id) => id !== ''))
+      let fallback = null
+      for (const port of STATUS_PORTS) {
+        const controller = typeof AbortController === 'function' ? new AbortController() : null
+        const timer = controller ? setTimeout(() => controller.abort(), 1500) : null
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}/sessions`, controller
+            ? { signal: controller.signal, cache: 'no-store' }
+            : { cache: 'no-store' })
+          if (timer) clearTimeout(timer)
+          if (!response || !response.ok) continue
+          const data = await response.json()
+          if (fallback === null) fallback = port
+          if (!data || data.ok === false || !Array.isArray(data.ids)) continue
+          if (wanted.size === 0) {
+            statusPort = port
+            return port
+          }
+          for (const id of data.ids) {
+            if (wanted.has(bareSessionId(id))) {
+              statusPort = port
+              return port
+            }
+          }
+        } catch (error) {
+          if (timer) clearTimeout(timer)
+        }
+      }
+      statusPort = fallback
+      return fallback
+    }
+
     async function relayGet(path) {
       if (typeof fetch !== 'function') throw new Error('fetch unavailable')
       const ports = statusPort === null ? STATUS_PORTS : [statusPort, ...STATUS_PORTS.filter((port) => port !== statusPort)]
@@ -1408,7 +1455,7 @@ window.__ModuleLoader__.load({
           }
           const data = await response.json()
           if (data && typeof data === 'object') {
-            statusPort = port
+            if (statusPort === null) statusPort = port
             return data
           }
         } catch (error) {
