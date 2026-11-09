@@ -1319,7 +1319,18 @@ window.__ModuleLoader__.load({
             ),
             h('div', { className: 'dwsf-popFoot' },
               h('span', { className: 'dwsf-popFootLabel' }, t('settings.nav')),
-              h(NavSwitch, { t })
+              h('div', { className: 'dwsf-popFootActions' },
+                h('button', {
+                  type: 'button',
+                  className: 'dwsf-link',
+                  title: t('settings.openLink'),
+                  onClick: () => {
+                    setOpen(false)
+                    if (typeof props.onOpenPanel === 'function') props.onOpenPanel()
+                  },
+                }, t('settings.openLink')),
+                h(NavSwitch, { t })
+              )
             )
           )
         : null
@@ -1561,6 +1572,7 @@ window.__ModuleLoader__.load({
 .dwsf-pop{position:fixed;z-index:60;display:flex;flex-direction:column;width:min(340px,calc(100vw - 24px));max-height:60vh;border-radius:12px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);overflow:hidden}
 .dwsf-popFoot{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border-top:.5px solid var(--dsw-alias-border-l2);font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
 .dwsf-popFootLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dwsf-popFootActions{flex:none;display:flex;align-items:center;gap:10px}
 .dwsf-popHead{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:10px 12px 4px}
 .dwsf-popTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:20px}
 .dwsf-popCount{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px;font-variant-numeric:tabular-nums}
@@ -1656,7 +1668,7 @@ window.__ModuleLoader__.load({
           id: PANEL_ID,
           order: 10,
           label: () => t('panel.label'),
-          inject: () => ({ t, onOpen: openSession }),
+          inject: () => ({ t, onOpen: openSession, onOpenPanel: openPanel }),
         }, FooterEntry)), 'workspace-session-filter: sidebar footer')
 
         ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({

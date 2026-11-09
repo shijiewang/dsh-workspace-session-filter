@@ -232,9 +232,11 @@ const statusMap = new Map([
   ['s2', { pendingInteraction: { kind: 'approval' } }],
   ['s6', { completionUnread: true }],
 ])
+const panelsOpened = []
 const props = {
   t: locale.bind('workspace-session-filter'),
   onOpen: (id) => registered.opened.push(id),
+  onOpenPanel: () => panelsOpened.push('panel'),
   useSessions: (sel) => sel(listState),
   useWorkspaces: (sel) => sel(workspaceState),
   useSessionStatus: (sel) => sel(statusMap),
@@ -391,6 +393,14 @@ assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length
 assert.strictEqual(buttonsWithClass(foot, 'dwsf-footChip')[0].props['data-active'], 'true')
 assert.strictEqual(findAll(foot, (n) => n.tag === 'button' && n.props.role === 'switch').length, 1, 'popover carries the nav switch')
 assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-popFoot').length, 1, 'popover renders the switch row')
+const popShortcut = findAll(foot, (n) => n.tag === 'button' && n.props.className === 'dwsf-link')[0]
+assert.ok(popShortcut, 'the popover footer links to the full panel')
+popShortcut.props.onClick()
+assert.strictEqual(panelsOpened.length, 1, 'the popover shortcut asks for the panel')
+foot = renderFoot(true)
+assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length, 0, 'the popover closes before switching panels')
+buttonsWithClass(foot, 'dwsf-footChip')[0].props.onClick()
+foot = renderFoot(true)
 const before = registered.opened.length
 let footRows = buttonsWithClass(foot, 'dwsf-row')
 assert.strictEqual(footRows.length, 1, 'running filter applied inside the footer list')
