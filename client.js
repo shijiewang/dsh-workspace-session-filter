@@ -48,7 +48,7 @@ window.__ModuleLoader__.load({
       'status.stale': '显示的是缓存状态',
       'status.openSite': '点击打开 status.deepseek.com',
       'status.recent': '最近三次故障',
-      'manage.open': '管理',
+      'manage.open': '选择并删除',
       'manage.close': '完成',
       'manage.search': '搜索标题或路径',
       'manage.picked': '已选 {n} 个',
@@ -67,6 +67,7 @@ window.__ModuleLoader__.load({
       'manage.failed': '执行失败：{error}',
       'manage.offline': '本地中继未运行，重启应用后再试',
       'manage.locked': '当前打开的会话不能移入回收站',
+      'manage.hint': '勾选后可导出摘要或移入回收站',
       'status.pollNote': '每分钟订阅一次 feed（上游缓存 60 秒）',
       'status.recentNone': '近期没有故障记录',
       'incident.resolved': '已恢复',
@@ -133,7 +134,7 @@ window.__ModuleLoader__.load({
       'status.stale': 'Showing a cached reading',
       'status.openSite': 'Click to open status.deepseek.com',
       'status.recent': 'Last three incidents',
-      'manage.open': 'Manage',
+      'manage.open': 'Select & delete',
       'manage.close': 'Done',
       'manage.search': 'Search titles or paths',
       'manage.picked': '{n} selected',
@@ -225,6 +226,20 @@ window.__ModuleLoader__.load({
         d: 'M4.25 6.25 8 10l3.75-3.75', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5,
         strokeLinecap: 'round', strokeLinejoin: 'round',
       }))
+    }
+
+    function TrashGlyph(props) {
+      const size = props && props.size ? props.size : 14
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 16 16', fill: 'none',
+        stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round',
+        'aria-hidden': 'true', focusable: 'false',
+      },
+        h('path', { d: 'M2.8 4.4h10.4' }),
+        h('path', { d: 'M6.4 4.4V3.1h3.2v1.3' }),
+        h('path', { d: 'M4.2 4.4l.6 8.1h6.4l.6-8.1' }),
+        h('path', { d: 'M6.7 6.7v3.6M9.3 6.7v3.6' })
+      )
     }
 
     function CheckGlyph() {
@@ -898,15 +913,20 @@ window.__ModuleLoader__.load({
               h('h1', { tabIndex: -1 }, t('panel.title')),
               h('span', { className: 'dwsf-headingMeta' },
                 t('panel.summary', { n: view.total, w: view.groups.length })),
-              h('button', {
-                type: 'button',
-                className: 'dwsf-btn dwsf-btnGhost',
-                'data-active': managing ? 'true' : 'false',
-                onClick: () => (managing ? leaveManaging() : setManaging(true)),
-              }, managing ? t('manage.close') : t('manage.open'))
+              h('span', { className: 'dwsf-headingHint' }, t('manage.hint'))
             ),
             toolbar,
             h('div', { className: 'dwsf-filters', role: 'group', 'aria-label': t('filter.aria') },
+              h('button', {
+                type: 'button',
+                className: 'dwsf-selectBtn',
+                'data-active': managing ? 'true' : 'false',
+                'aria-pressed': managing ? 'true' : 'false',
+                onClick: () => (managing ? leaveManaging() : setManaging(true)),
+              },
+                h(TrashGlyph, { size: 14 }),
+                h('span', null, managing ? t('manage.close') : t('manage.open'))
+              ),
               h(FilterTab, {
                 label: t('filter.all'), count: base.counts.all, active: statusFilter === 'all',
                 onClick: () => setStatusFilter('all'),
@@ -1461,6 +1481,12 @@ window.__ModuleLoader__.load({
 .dwsf-content{max-width:960px;margin:0 auto;padding:0 clamp(24px,4vw,48px) 48px}
 [data-platform=darwin] .dwsf-heading{padding-top:calc(28px + var(--dsh-frame-top-clearance,0px))}
 .dwsf-filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:0 0 14px}
+.dwsf-selectBtn{display:inline-flex;flex:none;align-items:center;gap:5px;height:28px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l1);border-radius:14px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}
+.dwsf-selectBtn:hover{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dwsf-selectBtn[data-active="true"]{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-inverted)}
+.dwsf-selectBtn[data-active="true"]:hover{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-inverted)}
+.dwsf-selectBtn:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}
+.dwsf-headingHint{margin-left:auto;color:var(--dsw-alias-label-caption);font-size:12px;line-height:18px}
 .dwsf-filter{height:28px;display:inline-flex;align-items:center;gap:5px;flex:none;padding:0 10px;border:0;border-radius:14px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:14px;line-height:22px;white-space:nowrap;cursor:pointer}
 .dwsf-filter:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dwsf-filter[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
@@ -1593,7 +1619,7 @@ window.__ModuleLoader__.load({
 .dwsf-btnDanger{background:0 0;color:var(--dsw-alias-state-error-primary)}
 .dwsf-btnDanger:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dwsf-headingMeta{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
-.dwsf-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border:.5px solid var(--dsw-alias-border-l2);border-radius:4px;color:var(--dsw-alias-label-primary-inverted)}
+.dwsf-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--dsw-alias-border-l1);border-radius:5px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary-inverted)}
 .dwsf-check[data-on="true"]{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-primary)}
 .dwsf-row[data-managing="true"][data-picked="true"]{background:var(--dsw-alias-interactive-bg-hover)}
 .dwsf-row[data-locked="true"]{opacity:.5;cursor:default}

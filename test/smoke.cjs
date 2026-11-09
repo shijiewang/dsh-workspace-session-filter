@@ -469,9 +469,9 @@ statusMap.clear()
 hookStore.clear()
 tree = renderInto(panelEntry[2])
 const findButton = (root, label) => findAll(root, (n) => typeof n.props.className === 'string'
-  && n.props.className.startsWith('dwsf-btn') && typeof n.props.onClick === 'function'
-  && textOf(n).trim() === label)[0]
-const manageOpen = findButton(tree, '管理')
+  && (n.props.className.startsWith('dwsf-btn') || n.props.className.startsWith('dwsf-selectBtn'))
+  && typeof n.props.onClick === 'function' && textOf(n).trim() === label)[0]
+const manageOpen = findButton(tree, '选择并删除')
 assert.ok(manageOpen, 'manage button present')
 manageOpen.props.onClick()
 tree = renderInto(panelEntry[2])
