@@ -243,13 +243,17 @@ const props = {
 }
 
 /* ------------------------------- assertions ------------------------------ */
+const startOfDay = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime() }
+const visibleIds = ['s1', 's2', 's3', 's6', 's7']
+const todayCount = visibleIds.filter((id) => byId[id].updatedAt >= startOfDay(now)).length
+const todayChip = '今日' + todayCount
 function renderInto(component, extraProps) {
   return renderElement(createElement(component, Object.assign({}, props, extraProps)), 'root')
 }
 
 let tree = renderInto(panelEntry[2])
 let chips = buttonsWithClass(tree, 'dwsf-filter')
-assert.deepStrictEqual(chips.map((n) => textOf(n).trim()), ['全部5', '运行中1', '等待确认1', '未读2', '更多'])
+assert.deepStrictEqual(chips.map((n) => textOf(n).trim()), ['全部5', '运行中1', '等待确认1', '未读2', todayChip, '更多'])
 let rows = buttonsWithClass(tree, 'dwsf-row')
 assert.strictEqual(rows.length, 5, 'archived / subagent / non-current blank excluded')
 let groups = findAll(tree, (n) => n.props.className === 'dwsf-group')
@@ -367,7 +371,11 @@ const renderFoot = (wide) => renderElement(
   createElement(footEntry[2], Object.assign({}, props, { wide })), 'foot')
 let foot = renderFoot(true)
 let footChips = buttonsWithClass(foot, 'dwsf-footChip')
-assert.deepStrictEqual(footChips.map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读2'], 'footer shows running + awaiting + unread')
+assert.deepStrictEqual(footChips.map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读2', todayChip], 'footer shows running + awaiting + unread + today')
+const statusButtons = findAll(foot, (n) => n.tag === 'button' && n.props.className === 'dwsf-statusButton')
+assert.strictEqual(statusButtons.length, 1, 'footer carries the service status dot')
+assert.strictEqual(statusButtons[0].props['data-state'], 'unknown', 'no relay in the sandbox means the grey state')
+assert.ok(String(statusButtons[0].props['aria-label']).includes('DeepSeek 服务状态'))
 assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length, 0, 'popover closed by default')
 
 footChips[0].props.onClick()
@@ -410,12 +418,24 @@ buttonsWithClass(foot, 'dwsf-footChip')[2].props.onClick()
 foot = renderFoot(true)
 assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length, 0, 'clicking the unread chip closes')
 
+buttonsWithClass(foot, 'dwsf-footChip')[3].props.onClick()
+foot = renderFoot(true)
+footRows = buttonsWithClass(foot, 'dwsf-row')
+assert.strictEqual(footRows.length, todayCount, 'today filter keeps only sessions updated since local midnight')
+buttonsWithClass(foot, 'dwsf-footChip')[3].props.onClick()
+foot = renderFoot(true)
+assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length, 0, 'clicking the today chip closes')
+buttonsWithClass(foot, 'dwsf-footChip')[2].props.onClick()
+foot = renderFoot(true)
+buttonsWithClass(foot, 'dwsf-footChip')[2].props.onClick()
+foot = renderFoot(true)
+
 let rail = renderFoot(false)
 assert.strictEqual(buttonsWithClass(rail, 'dwsf-footRailButton').length, 1, 'collapsed rail shows one icon button')
 assert.strictEqual(buttonsWithClass(rail, 'dwsf-footChip').length, 0, 'rail hides the text chips')
 buttonsWithClass(rail, 'dwsf-footRailButton')[0].props.onClick()
 rail = renderFoot(false)
-assert.deepStrictEqual(buttonsWithClass(rail, 'dwsf-footChip').map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读2'])
+assert.deepStrictEqual(buttonsWithClass(rail, 'dwsf-footChip').map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读2', todayChip])
 assert.strictEqual(buttonsWithClass(rail, 'dwsf-row').length, 2, 'rail popover keeps the active unread filter')
 assert.ok(buttonsWithClass(rail, 'dwsf-row').every((node) => textOf(node).includes('未读')))
 

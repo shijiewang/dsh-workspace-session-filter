@@ -18,6 +18,13 @@ window.__ModuleLoader__.load({
     ]
     const RANGE_MS = { day: DAY, '3days': 3 * DAY, week: 7 * DAY, month: 30 * DAY }
 
+    /** Local midnight for `now`, so "today" matches the clock the user reads. */
+    function startOfDay(now) {
+      const date = new Date(now)
+      date.setHours(0, 0, 0, 0)
+      return date.getTime()
+    }
+
     /* ------------------------------------------------------------------ *
      * Dictionaries
      * ------------------------------------------------------------------ */
@@ -31,6 +38,16 @@ window.__ModuleLoader__.load({
       'filter.awaiting': '等待确认',
       'filter.awaitingShort': '待确认',
       'filter.unread': '未读',
+      'filter.today': '今日',
+      'status.service': 'DeepSeek 服务状态',
+      'status.serviceOk': '服务正常',
+      'status.serviceDegraded': '部分服务异常',
+      'status.serviceDown': '服务异常',
+      'status.serviceUnknown': '状态未知',
+      'status.updated': '状态更新于 {t}',
+      'status.stale': '显示的是缓存状态',
+      'status.openSite': '点击打开 status.deepseek.com',
+      'status.offline': '本地状态中继未运行，读不到 status.deepseek.com',
       'settings.nav': '在左侧导航显示',
       'settings.navHint': '打开后左侧导航多一个「会话筛选」入口，可打开完整筛选面板；关闭时侧边栏底部的筛选条照常可用。',
       'settings.panel': '完整筛选面板',
@@ -75,6 +92,16 @@ window.__ModuleLoader__.load({
       'filter.awaiting': 'Awaiting confirmation',
       'filter.awaitingShort': 'Awaiting',
       'filter.unread': 'Unread',
+      'filter.today': 'Today',
+      'status.service': 'DeepSeek status',
+      'status.serviceOk': 'Operational',
+      'status.serviceDegraded': 'Partial degradation',
+      'status.serviceDown': 'Incident open',
+      'status.serviceUnknown': 'Unknown',
+      'status.updated': 'Updated {t}',
+      'status.stale': 'Showing a cached reading',
+      'status.openSite': 'Click to open status.deepseek.com',
+      'status.offline': 'The local status relay is not running, so status.deepseek.com cannot be read',
       'settings.nav': 'Show in the left navigation',
       'settings.navHint': 'Adds a Session filter entry to the left navigation that opens the full panel. The filter bar at the foot of the sidebar keeps working either way.',
       'settings.panel': 'Full filter panel',
@@ -407,6 +434,7 @@ window.__ModuleLoader__.load({
           if (lastSeen === undefined) lastSeen = stamp
         }
         const row = buildRow(summary, status, runningSubagents(list, summary.id, statuses || new Map()), t, lastSeen)
+        row.today = stamp >= startOfDay(now)
         rows.set(summary.id, row)
         base.push(row)
       }
@@ -414,12 +442,14 @@ window.__ModuleLoader__.load({
       const matches = (row) => statusFilter === 'all'
         || (statusFilter === 'running' ? row.running
           : statusFilter === 'awaiting' ? row.awaiting
-            : row.unread)
+            : statusFilter === 'today' ? row.today
+              : row.unread)
       const counts = {
         all: base.length,
         running: base.filter((row) => row.running).length,
         awaiting: base.filter((row) => row.awaiting).length,
         unread: base.filter((row) => row.unread).length,
+        today: base.filter((row) => row.today).length,
       }
 
       const groups = []
@@ -676,6 +706,10 @@ window.__ModuleLoader__.load({
                 label: t('filter.unread'), count: view.counts.unread, active: statusFilter === 'unread',
                 onClick: () => setStatusFilter(statusFilter === 'unread' ? 'all' : 'unread'),
               }),
+              h(FilterTab, {
+                label: t('filter.today'), count: view.counts.today, active: statusFilter === 'today',
+                onClick: () => setStatusFilter(statusFilter === 'today' ? 'all' : 'today'),
+              }),
               filtered
                 ? h('button', {
                     type: 'button',
@@ -720,6 +754,127 @@ window.__ModuleLoader__.load({
         )
       }
       return h(PanelBoundary, { t }, h(SessionFilterPage, props))
+    }
+
+    /* ------------------------------------------------------------------ *
+     * DeepSeek service status
+     *
+     * status.deepseek.com answers without CORS headers, and a bundle's Client
+     * half cannot call its own Host half, so index.js publishes the parsed
+     * feed on a loopback port and this dot polls it. When the relay is absent
+     * the dot stays grey instead of claiming "operational".
+     * ------------------------------------------------------------------ */
+    const STATUS_PORTS = [47100, 47101, 47102, 47103, 47104, 47105]
+    const STATUS_POLL_MS = 120_000
+    let statusPort = null
+
+    async function readServiceStatus() {
+      if (typeof fetch !== 'function') return null
+      const ports = statusPort === null ? STATUS_PORTS : [statusPort]
+      for (const port of ports) {
+        const controller = typeof AbortController === 'function' ? new AbortController() : null
+        const timer = controller ? setTimeout(() => controller.abort(), 2500) : null
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}/status`, controller
+            ? { signal: controller.signal, cache: 'no-store' }
+            : { cache: 'no-store' })
+          if (timer) clearTimeout(timer)
+          if (!response || !response.ok) continue
+          const data = await response.json()
+          if (data && typeof data === 'object') {
+            statusPort = port
+            return data
+          }
+        } catch (error) {
+          if (timer) clearTimeout(timer)
+        }
+      }
+      return null
+    }
+
+    function useServiceStatus() {
+      const [info, setInfo] = useState(null)
+      const [gone, setGone] = useState(false)
+      useEffect(() => {
+        let alive = true
+        let timer = null
+        const tick = () => {
+          readServiceStatus().then((next) => {
+            if (!alive) return
+            if (next === null) setGone(true)
+            else {
+              setGone(false)
+              setInfo(next)
+            }
+          }, () => { if (alive) setGone(true) })
+        }
+        tick()
+        timer = setInterval(tick, STATUS_POLL_MS)
+        return () => { alive = false; if (timer) clearInterval(timer) }
+      }, [])
+      return { info, gone }
+    }
+
+    function clockOf(stamp) {
+      const date = new Date(stamp)
+      if (Number.isNaN(date.getTime())) return ''
+      const pad = (value) => (value < 10 ? `0${value}` : String(value))
+      return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+    }
+
+    function shorten(text, limit) {
+      const value = String(text || '').trim()
+      return value.length > limit ? `${value.slice(0, limit - 1)}…` : value
+    }
+
+    function ServiceStatus(props) {
+      const t = props.t
+      const { info, gone } = useServiceStatus()
+      const [hover, setHover] = useState(false)
+      const state = gone || !info ? 'unknown' : (info.state || 'unknown')
+      const stateLabel = state === 'ok' ? t('status.serviceOk')
+        : state === 'degraded' ? t('status.serviceDegraded')
+          : state === 'down' ? t('status.serviceDown')
+            : t('status.serviceUnknown')
+      const name = `${t('status.service')} · ${stateLabel}`
+      const open = () => {
+        try { window.open('https://status.deepseek.com/', '_blank', 'noopener,noreferrer') } catch (error) { /* popup blocked */ }
+      }
+      const card = hover
+        ? h('div', { className: 'dwsf-statusCard', role: 'tooltip' },
+            h('div', { className: 'dwsf-statusHead' },
+              h('span', { className: 'dwsf-statusDot', 'data-state': state, 'aria-hidden': 'true' }),
+              h('span', { className: 'dwsf-statusName' }, name)
+            ),
+            info ? (info.headline ? h('div', { className: 'dwsf-statusLine' }, shorten(info.headline, 110)) : null) : null,
+            info && info.state !== 'ok' && info.detail
+              ? h('div', { className: 'dwsf-statusLine' }, shorten(info.detail, 140))
+              : null,
+            info ? null : h('div', { className: 'dwsf-statusLine' }, t('status.offline')),
+            info && info.updated
+              ? h('div', { className: 'dwsf-statusMeta' }, info.stale ? t('status.stale') : t('status.updated', { t: clockOf(info.updated) }))
+              : null,
+            h('div', { className: 'dwsf-statusMeta' }, t('status.openSite'))
+          )
+        : null
+      return h('div', { className: 'dwsf-status' },
+        h('button', {
+          type: 'button',
+          className: 'dwsf-statusButton',
+          'data-state': state,
+          'aria-label': name,
+          'aria-describedby': undefined,
+          title: name,
+          onClick: open,
+          onMouseEnter: () => setHover(true),
+          onMouseLeave: () => setHover(false),
+          onFocus: () => setHover(true),
+          onBlur: () => setHover(false),
+        },
+          h('span', { className: 'dwsf-statusDot', 'data-state': state, 'aria-hidden': 'true' })
+        ),
+        card
+      )
     }
 
     /**
@@ -824,7 +979,8 @@ window.__ModuleLoader__.load({
       const filters = h('div', { className: 'dwsf-footChips', role: 'group', 'aria-label': t('filter.aria') },
         chip('running', t('filter.running'), view.counts.running),
         chip('awaiting', t('filter.awaitingShort'), view.counts.awaiting),
-        chip('unread', t('filter.unread'), view.counts.unread)
+        chip('unread', t('filter.unread'), view.counts.unread),
+        chip('today', t('filter.today'), view.counts.today)
       )
 
       const popover = open && anchor !== undefined
@@ -871,7 +1027,7 @@ window.__ModuleLoader__.load({
         )
       }
 
-      return h('div', { ref: rootRef, className: 'dwsf-foot' }, popover, filters)
+      return h('div', { ref: rootRef, className: 'dwsf-foot' }, popover, filters, h(ServiceStatus, { t }))
     }
 
     /**
@@ -1018,7 +1174,7 @@ window.__ModuleLoader__.load({
 .dwsf-emptyHint{color:var(--dsw-alias-label-caption);font-size:13px;line-height:20px}
 [data-slot="sidebar.footer.action"]{display:flex !important;flex-wrap:wrap;width:100%;min-width:0;align-items:flex-start;column-gap:0;row-gap:0}
 .dwsf-foot{flex:1 0 100%;display:flex;align-items:center;min-width:0;max-width:100%;margin:8px 0 2px;padding:0 2px}
-.dwsf-footChips{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px 2px;min-width:0;width:100%}
+.dwsf-footChips{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px 2px;min-width:0;flex:1 1 auto}
 .dwsf-footChip{flex:0 1 auto;min-width:0;max-width:100%;height:28px;display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:0 7px;border:0;border-radius:999px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:18px;white-space:nowrap;cursor:pointer;overflow:hidden}
 .dwsf-footChip:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dwsf-footChip[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
@@ -1026,6 +1182,19 @@ window.__ModuleLoader__.load({
 .dwsf-footChipLabel{flex:0 0 auto;white-space:nowrap}
 .dwsf-footChipCount{flex:none;color:var(--dsw-alias-label-caption);font-size:10px;line-height:14px;font-variant-numeric:tabular-nums}
 .dwsf-footChip[data-active="true"] .dwsf-footChipCount{color:var(--dsw-alias-label-secondary)}
+.dwsf-status{position:relative;flex:0 0 auto;display:flex;align-items:center;padding-left:4px}
+.dwsf-statusButton{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:999px;background:0 0;cursor:pointer}
+.dwsf-statusButton:hover,.dwsf-statusButton:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}
+.dwsf-statusButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}
+.dwsf-statusDot{flex:0 0 auto;width:8px;height:8px;border-radius:999px;background:var(--dsw-alias-label-caption)}
+.dwsf-statusDot[data-state="ok"]{background:var(--dsw-alias-state-success-primary)}
+.dwsf-statusDot[data-state="degraded"]{background:var(--dsw-alias-state-warn-primary)}
+.dwsf-statusDot[data-state="down"]{background:var(--dsw-alias-state-error-primary)}
+.dwsf-statusCard{position:absolute;right:0;bottom:calc(100% + 8px);z-index:70;display:flex;flex-direction:column;gap:3px;width:max-content;max-width:min(286px,72vw);padding:8px 10px;border-radius:10px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-elevation-prominent);text-align:left}
+.dwsf-statusHead{display:flex;align-items:center;gap:6px}
+.dwsf-statusName{font-size:12px;line-height:18px;font-weight:500;color:var(--dsw-alias-label-primary)}
+.dwsf-statusLine{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
+.dwsf-statusMeta{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
 .dwsf-footRail{flex:0 0 auto;display:flex;justify-content:center;width:100%}
 .dwsf-footRailButton{position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:0;border-radius:50%;background:0 0;color:var(--dsw-alias-label-primary);cursor:pointer}
 .dwsf-footRailButton:hover,.dwsf-footRailButton[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover)}
