@@ -570,13 +570,32 @@ function readDigest(rawName) {
   return null
 }
 
+/* Session ids reach the Host in more than one shape (`<uuid>`, `session-<uuid>`,
+ * `session:<uuid>`). Match on the uuid, not on the prefix. */
+function matchSession(known, rawId) {
+  const id = String(rawId)
+  const direct = known.get(id)
+  if (direct) return direct
+  const stripped = known.get(id.replace(/^session[-:]/, ''))
+  if (stripped) return stripped
+  const tail = id.slice(-36)
+  if (tail.length === 36) {
+    const byTail = known.get(tail)
+    if (byTail) return byTail
+  }
+  for (const entry of known.values()) {
+    if (id.endsWith(entry.id)) return entry
+  }
+  return undefined
+}
+
 function exportDigests(ids, titles, note) {
   const known = new Map(sessionDirs().map((entry) => [entry.id, entry]))
   const digests = []
   const missing = []
   for (const rawId of ids) {
     const id = String(rawId)
-    const info = known.get(id) || known.get(id.replace(/^session-/, ''))
+    const info = matchSession(known, id)
     if (!info) {
       missing.push(id)
       continue
@@ -585,6 +604,9 @@ function exportDigests(ids, titles, note) {
     const known_title = titles && typeof titles === 'object' ? titles[id] : ''
     digest.title = String(known_title || '').trim()
     digests.push(digest)
+  }
+  if (digests.length === 0) {
+    return { ok: false, error: 'no matching session directories', sessions: 0, missing }
   }
   const now = new Date()
   const stamp = stampLabel(now)
@@ -604,7 +626,7 @@ function trashSessions(ids) {
   const failed = []
   for (const rawId of ids) {
     const id = String(rawId)
-    const info = known.get(id) || known.get(id.replace(/^session-/, ''))
+    const info = matchSession(known, id)
     if (!info) {
       failed.push({ id, reason: 'not found' })
       continue

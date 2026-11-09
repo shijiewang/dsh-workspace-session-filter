@@ -68,6 +68,16 @@ window.__ModuleLoader__.load({
       'manage.offline': '本地中继未运行，重启应用后再试',
       'manage.locked': '当前打开的会话不能移入回收站',
       'manage.hint': '勾选后可导出摘要或移入回收站',
+      'manage.digests': '摘要文件',
+      'manage.digestsTitle': '导出的摘要文件',
+      'manage.digestsHint': '每次导出或删除会话前都会写一份 Markdown 摘要，保存在「下载」目录。',
+      'manage.digestsEmpty': '还没有导出过摘要',
+      'manage.digestsLoading': '读取中…',
+      'manage.digestsRefresh': '刷新',
+      'manage.digestsClose': '关闭',
+      'manage.digestMeta': '{size} · {time}',
+      'manage.missing': ' ({n} session directories were not found and were skipped)',
+      'manage.missing': '（{n} 个会话找不到目录，已跳过）',
       'status.pollNote': '每分钟订阅一次 feed（上游缓存 60 秒）',
       'status.recentNone': '近期没有故障记录',
       'incident.resolved': '已恢复',
@@ -152,6 +162,16 @@ window.__ModuleLoader__.load({
       'manage.trashed': 'Moved {n} sessions to the trash (reload to refresh the list)',
       'manage.failed': 'Failed: {error}',
       'manage.offline': 'The local relay is not running; restart the app and retry',
+      'manage.locked': 'The open session cannot be moved to the trash',
+      'manage.hint': 'Tick sessions to export a digest or move them to the trash',
+      'manage.digests': 'Digests',
+      'manage.digestsTitle': 'Exported digests',
+      'manage.digestsHint': 'Every export or trash run writes a Markdown digest into your Downloads folder.',
+      'manage.digestsEmpty': 'No digest has been written yet',
+      'manage.digestsLoading': 'Loading…',
+      'manage.digestsRefresh': 'Refresh',
+      'manage.digestsClose': 'Close',
+      'manage.digestMeta': '{size} · {time}',
       'status.pollNote': 'Polls the feed once a minute (upstream caches 60s)',
       'status.recentNone': 'No incidents on record',
       'incident.resolved': 'Resolved',
@@ -226,6 +246,19 @@ window.__ModuleLoader__.load({
         d: 'M4.25 6.25 8 10l3.75-3.75', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5,
         strokeLinecap: 'round', strokeLinejoin: 'round',
       }))
+    }
+
+    function DocGlyph(props) {
+      const size = props && props.size ? props.size : 14
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 16 16', fill: 'none',
+        stroke: 'currentColor', strokeWidth: 1.2, strokeLinecap: 'round', strokeLinejoin: 'round',
+        'aria-hidden': 'true', focusable: 'false',
+      },
+        h('path', { d: 'M3.5 2.2h5.1l3.4 3.3v8.3H3.5z' }),
+        h('path', { d: 'M8.5 2.4v3.3h3.4' }),
+        h('path', { d: 'M5.7 8.6h4.6M5.7 10.8h4.6' })
+      )
     }
 
     function TrashGlyph(props) {
@@ -793,6 +826,7 @@ window.__ModuleLoader__.load({
       const [confirming, setConfirming] = useState(false)
       const [understood, setUnderstood] = useState(false)
       const [digest, setDigest] = useState(null)
+      const [digests, setDigests] = useState(null)
       const [, setTick] = useState(0)
 
       useEffect(() => {
@@ -848,6 +882,15 @@ window.__ModuleLoader__.load({
           setDigest({ name, error: (error && error.message) || String(error) })
         }
       }
+      const openDigests = async () => {
+        setDigests({ loading: true })
+        try {
+          const data = await relayGet('/digests')
+          setDigests({ items: Array.isArray(data.items) ? data.items : [] })
+        } catch (error) {
+          setDigests({ error: (error && error.message) || String(error) })
+        }
+      }
       const exportNow = async () => {
         const payload = { ids: [...picked], titles: titles(), note: '' }
         const result = await relayCall('/export', payload)
@@ -860,7 +903,10 @@ window.__ModuleLoader__.load({
         setNotice('')
         try {
           const result = await exportNow()
-          setNotice(t('manage.exported', { n: String(result.sessions || picked.size), path: result.file || '' }))
+          const skipped = Array.isArray(result.missing) && result.missing.length > 0
+            ? t('manage.missing', { n: String(result.missing.length) })
+            : ''
+          setNotice(t('manage.exported', { n: String(result.sessions || picked.size), path: result.file || '' }) + skipped)
           setDigest({ name: result.name || String(result.file || '').split('/').pop() })
         } catch (error) {
           setNotice(t('manage.failed', { error: (error && error.message) || String(error) }))
@@ -873,8 +919,14 @@ window.__ModuleLoader__.load({
         setBusy(true)
         setConfirming(false)
         setUnderstood(false)
+        let exported = null
         try {
-          const exported = await exportNow()
+          exported = await exportNow()
+        } catch (error) {
+          /* A digest that matches nothing must not block the cleanup itself. */
+          console.error('[workspace-session-filter] digest export failed', error)
+        }
+        try {
           const targets = [...picked].filter((id) => id !== base.currentId)
           const result = await relayCall('/trash', { ids: targets })
           if (!result || result.ok === false) {
@@ -882,7 +934,7 @@ window.__ModuleLoader__.load({
           }
           for (const id of (result.moved || [])) trashedIds.add(id)
           setNotice(t('manage.trashed', { n: String((result.moved || []).length) }))
-          setDigest({ name: exported.name || String(exported.file || '').split('/').pop() })
+          if (exported) setDigest({ name: exported.name || String(exported.file || '').split('/').pop() })
           setPicked(new Set())
           loadDiskIds().then(() => setTick((value) => value + 1), () => {})
         } catch (error) {
@@ -969,6 +1021,14 @@ window.__ModuleLoader__.load({
                 h(TrashGlyph, { size: 14 }),
                 h('span', null, managing ? t('manage.close') : t('manage.open'))
               ),
+              h('button', {
+                type: 'button',
+                className: 'dwsf-selectBtn',
+                onClick: openDigests,
+              },
+                h(DocGlyph, { size: 14 }),
+                h('span', null, t('manage.digests'))
+              ),
               h(FilterTab, {
                 label: t('filter.all'), count: base.counts.all, active: statusFilter === 'all',
                 onClick: () => setStatusFilter('all'),
@@ -1018,6 +1078,7 @@ window.__ModuleLoader__.load({
                 : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle }),
             dialog,
             digest && digest.name ? h(DigestPreview, { t, digest, onClose: () => setDigest(null) }) : null
+            ,digests ? h(DigestListDialog, { t, digests, onClose: () => setDigests(null), onOpen: openDigest, onRefresh: openDigests }) : null
           )
         )
       )
@@ -1095,6 +1156,43 @@ window.__ModuleLoader__.load({
         out.push(h('p', { key: `p${key++}`, className: 'dwsf-mdp' }, inline(paragraph.join(' '))))
       }
       return out
+    }
+
+    /* The Markdown digests already sitting in Downloads: click one to preview it. */
+    function DigestListDialog(props) {
+      const t = props.t
+      const state = props.digests
+      const items = state.items || []
+      const body = state.error
+        ? h('div', { className: 'dwsf-empty' }, t('manage.failed', { error: state.error }))
+        : state.loading === true
+          ? h('div', { className: 'dwsf-empty' }, t('manage.digestsLoading'))
+          : items.length === 0
+            ? h('div', { className: 'dwsf-empty' }, t('manage.digestsEmpty'))
+            : h('div', { className: 'dwsf-digestList' }, items.map((item) => h('button', {
+                key: item.name,
+                type: 'button',
+                className: 'dwsf-digestRow',
+                onClick: () => props.onOpen(item.name),
+              },
+                h(DocGlyph, { size: 15 }),
+                h('span', { className: 'dwsf-digestName' }, item.name),
+                h('span', { className: 'dwsf-digestMeta' }, t('manage.digestMeta', {
+                  size: `${Math.max(1, Math.round((item.size || 0) / 1024))} KB`,
+                  time: clockOf(item.mtime),
+                }))
+              )))
+      return h('div', { className: 'dwsf-modalBackdrop', role: 'presentation' },
+        h('div', { className: 'dwsf-modal dwsf-previewModal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('manage.digestsTitle') },
+          h('div', { className: 'dwsf-modalTitle' }, t('manage.digestsTitle')),
+          h('div', { className: 'dwsf-previewPath' }, t('manage.digestsHint')),
+          h('div', { className: 'dwsf-previewBody' }, body),
+          h('div', { className: 'dwsf-modalActions' },
+            h('button', { type: 'button', className: 'dwsf-btn dwsf-btnGhost', onClick: props.onRefresh }, t('manage.digestsRefresh')),
+            h('button', { type: 'button', className: 'dwsf-btn', onClick: props.onClose }, t('manage.digestsClose'))
+          )
+        )
+      )
     }
 
     function DigestPreview(props) {
@@ -1837,6 +1935,13 @@ window.__ModuleLoader__.load({
 .dwsf-previewBody pre{margin:6px 0 10px;padding:8px 10px;overflow:auto;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-interactive-bg-hover);font-size:12px;line-height:18px}
 .dwsf-previewBody pre code{padding:0;background:0 0}
 .dwsf-previewBody strong{font-weight:600}
+
+.dwsf-digestList{display:flex;flex-direction:column;gap:2px}
+.dwsf-digestRow{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;padding:7px 8px;border:0;border-radius:var(--dsw-radius-md);background:0 0;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;text-align:left;cursor:pointer}
+.dwsf-digestRow:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dwsf-digestRow:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-1px}
+.dwsf-digestName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dwsf-digestMeta{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}
 
 `
 
