@@ -506,7 +506,7 @@ window.__ModuleLoader__.load({
         if (summary.blank && summary.id !== currentId) continue
         if (archived.has(summary.id)) continue
         if (trashedIds.has(summary.id)) continue
-        if (diskIds && !summary.blank && !diskIds.has(summary.id)) continue
+        if (diskIds && diskIds.size > 0 && !summary.blank && !diskIds.has(bareSessionId(summary.id))) continue
         if (cutoff && !(summary.updatedAt >= cutoff)) continue
         const status = statuses ? statuses.get(summary.id) : undefined
         const stamp = Number(summary.updatedAt) || 0
@@ -1182,11 +1182,17 @@ window.__ModuleLoader__.load({
 
     /* The Host catalog keeps a trashed session until it rescans; ask the relay
      * which ids still exist on disk so the list stops showing them at once. */
+    /* Host ids carry the `session-` prefix; directory names do not. Compare bare uuids. */
+    function bareSessionId(id) {
+      return String(id).replace(/^session-/, '')
+    }
+
     async function loadDiskIds() {
       try {
         const data = await relayGet('/sessions')
         if (data && data.ok !== false && Array.isArray(data.ids)) {
-          diskIds = new Set(data.ids)
+          const ids = data.ids.map(bareSessionId).filter((id) => id !== '')
+          diskIds = new Set(ids)
           return diskIds
         }
       } catch (error) { /* relay not up yet: leave the list as the Host reports it */ }
