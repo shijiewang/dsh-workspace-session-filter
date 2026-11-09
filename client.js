@@ -74,7 +74,8 @@ window.__ModuleLoader__.load({
       'manage.digestsEmpty': '还没有导出过摘要',
       'manage.digestsLoading': '读取中…',
       'manage.digestsRefresh': '刷新',
-      'manage.digestsClose': '关闭',
+      'manage.digestsClose': '关闭摘要栏',
+      'manage.digestsBack': '返回列表',
       'manage.digestMeta': '{size} · {time}',
       'manage.missing': ' ({n} session directories were not found and were skipped)',
       'manage.missing': '（{n} 个会话找不到目录，已跳过）',
@@ -170,7 +171,8 @@ window.__ModuleLoader__.load({
       'manage.digestsEmpty': 'No digest has been written yet',
       'manage.digestsLoading': 'Loading…',
       'manage.digestsRefresh': 'Refresh',
-      'manage.digestsClose': 'Close',
+      'manage.digestsClose': 'Close the digest column',
+      'manage.digestsBack': 'Back to list',
       'manage.digestMeta': '{size} · {time}',
       'status.pollNote': 'Polls the feed once a minute (upstream caches 60s)',
       'status.recentNone': 'No incidents on record',
@@ -882,6 +884,7 @@ window.__ModuleLoader__.load({
           setDigest({ name, error: (error && error.message) || String(error) })
         }
       }
+      const closeDigests = () => { setDigests(null); setDigest(null) }
       const openDigests = async () => {
         setDigests({ loading: true })
         try {
@@ -1024,7 +1027,9 @@ window.__ModuleLoader__.load({
               h('button', {
                 type: 'button',
                 className: 'dwsf-selectBtn',
-                onClick: openDigests,
+                'data-active': digests ? 'true' : 'false',
+                'aria-pressed': digests ? 'true' : 'false',
+                onClick: () => (digests ? closeDigests() : openDigests()),
               },
                 h(DocGlyph, { size: 14 }),
                 h('span', null, t('manage.digests'))
@@ -1066,7 +1071,7 @@ window.__ModuleLoader__.load({
                     ? h('button', {
                         type: 'button',
                         className: 'dwsf-link',
-                        onClick: () => openDigest(digest.name),
+                        onClick: () => { if (!digests) openDigests(); openDigest(digest.name) },
                       }, t('manage.preview'))
                     : null
                 )
@@ -1077,8 +1082,17 @@ window.__ModuleLoader__.load({
                 ? h('div', { className: 'dwsf-empty' }, h('div', null, t('manage.empty')))
                 : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle }),
             dialog,
-            digest && digest.name ? h(DigestPreview, { t, digest, onClose: () => setDigest(null) }) : null
-            ,digests ? h(DigestListDialog, { t, digests, onClose: () => setDigests(null), onOpen: openDigest, onRefresh: openDigests }) : null
+            digests
+          ? h(DigestSidePanel, {
+              t,
+              digests,
+              digest,
+              onOpen: openDigest,
+              onClear: () => setDigest(null),
+              onRefresh: openDigests,
+              onClose: closeDigests,
+            })
+          : null
           )
         )
       )
@@ -1158,21 +1172,24 @@ window.__ModuleLoader__.load({
       return out
     }
 
-    /* The Markdown digests already sitting in Downloads: click one to preview it. */
-    function DigestListDialog(props) {
+    /* The Markdown digests already written to Downloads, docked as a column so the
+     * session list stays visible beside them. */
+    function DigestSidePanel(props) {
       const t = props.t
-      const state = props.digests
+      const state = props.digests || {}
+      const selected = props.digest
       const items = state.items || []
-      const body = state.error
-        ? h('div', { className: 'dwsf-empty' }, t('manage.failed', { error: state.error }))
+      const list = state.error
+        ? h('div', { className: 'dwsf-sideEmpty' }, t('manage.failed', { error: state.error }))
         : state.loading === true
-          ? h('div', { className: 'dwsf-empty' }, t('manage.digestsLoading'))
+          ? h('div', { className: 'dwsf-sideEmpty' }, t('manage.digestsLoading'))
           : items.length === 0
-            ? h('div', { className: 'dwsf-empty' }, t('manage.digestsEmpty'))
+            ? h('div', { className: 'dwsf-sideEmpty' }, t('manage.digestsEmpty'))
             : h('div', { className: 'dwsf-digestList' }, items.map((item) => h('button', {
                 key: item.name,
                 type: 'button',
                 className: 'dwsf-digestRow',
+                'data-active': selected && selected.name === item.name ? 'true' : 'false',
                 onClick: () => props.onOpen(item.name),
               },
                 h(DocGlyph, { size: 15 }),
@@ -1182,36 +1199,32 @@ window.__ModuleLoader__.load({
                   time: clockOf(item.mtime),
                 }))
               )))
-      return h('div', { className: 'dwsf-modalBackdrop', role: 'presentation' },
-        h('div', { className: 'dwsf-modal dwsf-previewModal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('manage.digestsTitle') },
-          h('div', { className: 'dwsf-modalTitle' }, t('manage.digestsTitle')),
-          h('div', { className: 'dwsf-previewPath' }, t('manage.digestsHint')),
-          h('div', { className: 'dwsf-previewBody' }, body),
-          h('div', { className: 'dwsf-modalActions' },
-            h('button', { type: 'button', className: 'dwsf-btn dwsf-btnGhost', onClick: props.onRefresh }, t('manage.digestsRefresh')),
-            h('button', { type: 'button', className: 'dwsf-btn', onClick: props.onClose }, t('manage.digestsClose'))
+      const body = selected
+        ? h('div', { className: 'dwsf-sideBody' },
+            h('div', { className: 'dwsf-previewPath' }, selected.name),
+            selected.error
+              ? h('div', { className: 'dwsf-sideEmpty' }, t('manage.previewFailed', { error: selected.error }))
+              : selected.text === undefined
+                ? h('div', { className: 'dwsf-sideEmpty' }, t('manage.previewLoading'))
+                : h('div', { className: 'dwsf-previewBody' }, renderDigest(selected.text))
           )
-        )
-      )
-    }
-
-    function DigestPreview(props) {
-      const t = props.t
-      const digest = props.digest
-      const body = digest.error
-        ? h('div', { className: 'dwsf-empty' }, t('manage.previewFailed', { error: digest.error }))
-        : digest.text === undefined
-          ? h('div', { className: 'dwsf-empty' }, t('manage.previewLoading'))
-          : h('div', { className: 'dwsf-previewBody' }, renderDigest(digest.text))
-      return h('div', { className: 'dwsf-modalBackdrop', role: 'presentation' },
-        h('div', { className: 'dwsf-modal dwsf-previewModal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('manage.previewTitle') },
-          h('div', { className: 'dwsf-modalTitle' }, t('manage.previewTitle')),
-          h('div', { className: 'dwsf-previewPath' }, digest.name),
-          body,
-          h('div', { className: 'dwsf-modalActions' },
-            h('button', { type: 'button', className: 'dwsf-btn dwsf-btnGhost', onClick: props.onClose }, t('manage.previewClose'))
+        : h('div', { className: 'dwsf-sideBody' },
+            h('div', { className: 'dwsf-sideHint' }, t('manage.digestsHint')),
+            list
           )
-        )
+      return h('aside', { className: 'dwsf-side', 'aria-label': t('manage.digestsTitle') },
+        h('div', { className: 'dwsf-sideHead' },
+          h('div', { className: 'dwsf-sideTitle' }, selected ? t('manage.previewTitle') : t('manage.digestsTitle')),
+          h('span', { className: 'dwsf-spacer' }),
+          selected
+            ? h('button', { type: 'button', className: 'dwsf-link', onClick: props.onClear }, t('manage.digestsBack'))
+            : null,
+          h('button', { type: 'button', className: 'dwsf-link', onClick: props.onRefresh }, t('manage.digestsRefresh')),
+          h('button', {
+            type: 'button', className: 'dwsf-link', onClick: props.onClose, 'aria-label': t('manage.digestsClose'), title: t('manage.digestsClose'),
+          }, '×')
+        ),
+        body
       )
     }
 
@@ -1942,6 +1955,16 @@ window.__ModuleLoader__.load({
 .dwsf-digestRow:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-1px}
 .dwsf-digestName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dwsf-digestMeta{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}
+
+.dwsf-side{flex:0 0 clamp(280px,34%,400px);display:flex;flex-direction:column;min-width:0;min-height:0;border-left:.5px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1)}
+.dwsf-sideHead{flex:none;display:flex;align-items:center;gap:10px;padding:14px 14px 10px;border-bottom:.5px solid var(--dsw-alias-border-l1)}
+.dwsf-sideTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:20px}
+.dwsf-sideBody{flex:1;min-height:0;overflow:auto;padding:12px 14px 18px;scrollbar-gutter:stable}
+.dwsf-sideHint{margin:0 0 10px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+.dwsf-sideEmpty{padding:18px 2px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+.dwsf-side .dwsf-previewBody{margin-top:8px;padding-right:0;overflow:visible}
+.dwsf-side .dwsf-digestName{font-size:12px}
+.dwsf-digestRow[data-active="true"]{background:var(--dsw-alias-interactive-bg-active)}
 
 `
 
