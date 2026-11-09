@@ -359,6 +359,13 @@ const openBtn = findAll(sectionTree, (n) => n.tag === 'button' && n.props.classN
 assert.ok(openBtn, 'settings page needs the open-panel button')
 openBtn.props.onClick()
 assert.strictEqual(panelOpens, 1, 'the button asks for the panel')
+const switchState = findAll(sectionTree, (n) => n.props.className === 'dwsf-switchState')[0]
+assert.ok(switchState, 'the switch prints its state, not just a colour')
+assert.strictEqual(textOf(switchState), '已关闭', 'nav switch starts off')
+const quickLink = findAll(sectionTree, (n) => n.tag === 'button' && n.props.className === 'dwsf-link')[0]
+assert.ok(quickLink, 'the nav row carries a quick open link')
+quickLink.props.onClick()
+assert.strictEqual(panelOpens, 2, 'the quick link opens the panel too')
 
 /* ------------------------------ footer bar ------------------------------ */
 const footEntry = registered.entries.find(([slot]) => slot === 'sidebar.footer.action')

@@ -77,6 +77,9 @@ window.__ModuleLoader__.load({
       'incident.unknown': '未知状态',
       'status.offline': '本地状态中继未运行，读不到 status.deepseek.com',
       'settings.nav': '在左侧导航显示',
+      'settings.on': '已开启',
+      'settings.off': '已关闭',
+      'settings.openLink': '打开会话筛选',
       'settings.navHint': '打开后左侧导航多一个「会话筛选」入口，可打开完整筛选面板；关闭时侧边栏底部的筛选条照常可用。',
       'settings.panel': '完整筛选面板',
       'settings.panelHint': '在中间栏打开完整视图：全部 / 运行中 / 等待确认 / 未读，外加按时间窗筛选。',
@@ -158,6 +161,9 @@ window.__ModuleLoader__.load({
       'incident.unknown': 'Unknown',
       'status.offline': 'The local status relay is not running, so status.deepseek.com cannot be read',
       'settings.nav': 'Show in the left navigation',
+      'settings.on': 'On',
+      'settings.off': 'Off',
+      'settings.openLink': 'Open the filter',
       'settings.navHint': 'Adds a Session filter entry to the left navigation that opens the full panel. The filter bar at the foot of the sidebar keeps working either way.',
       'settings.panel': 'Full filter panel',
       'settings.panelHint': 'Open the wide view in the centre column: all / running / awaiting / unread, plus the time-window menu.',
@@ -1349,17 +1355,24 @@ window.__ModuleLoader__.load({
 
       useEffect(() => subscribeNav((value) => setOn(value)), [])
 
-      return h('button', {
-        type: 'button',
-        role: 'switch',
-        className: 'dwsf-switch',
-        'aria-checked': on ? 'true' : 'false',
-        'aria-label': props.t('settings.nav'),
-        'data-on': on ? 'true' : 'false',
-        onClick: () => setNavVisible(!on),
-      },
-        h('span', { className: 'dwsf-switchTrack', 'data-on': on ? 'true' : 'false', 'aria-hidden': 'true' },
-          h('span', { className: 'dwsf-switchThumb' })
+      return h('div', { className: 'dwsf-switchWrap' },
+        h('span', {
+          className: 'dwsf-switchState',
+          'data-on': on ? 'true' : 'false',
+          'aria-hidden': 'true',
+        }, props.t(on ? 'settings.on' : 'settings.off')),
+        h('button', {
+          type: 'button',
+          role: 'switch',
+          className: 'dwsf-switch',
+          'aria-checked': on ? 'true' : 'false',
+          'aria-label': props.t('settings.nav'),
+          'data-on': on ? 'true' : 'false',
+          onClick: () => setNavVisible(!on),
+        },
+          h('span', { className: 'dwsf-switchTrack', 'data-on': on ? 'true' : 'false', 'aria-hidden': 'true' },
+            h('span', { className: 'dwsf-switchThumb' })
+          )
         )
       )
     }
@@ -1373,7 +1386,14 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dwsf-settingLabel' }, t('settings.nav')),
             h('span', { className: 'dwsf-settingHint' }, t('settings.navHint'))
           ),
-          h(NavSwitch, { t })
+          h('div', { className: 'dwsf-settingActions' },
+            h(NavSwitch, { t }),
+            h('button', {
+              type: 'button',
+              className: 'dwsf-link',
+              onClick: () => { if (typeof props.onOpenPanel === 'function') props.onOpenPanel() },
+            }, t('settings.openLink'))
+          )
         ),
         h('div', { className: 'dwsf-settingRow' },
           h('div', { className: 'dwsf-settingCopy' },
@@ -1524,13 +1544,19 @@ window.__ModuleLoader__.load({
 .dwsf-settingCopy{display:flex;flex-direction:column;gap:2px;min-width:0}
 .dwsf-settingLabel{font-size:13px;line-height:20px}
 .dwsf-settingHint{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+.dwsf-settingActions{display:flex;flex:none;align-items:center;gap:12px;padding-top:1px}
+.dwsf-link{padding:0;border:0;background:0 0;color:var(--dsw-alias-brand-primary);font:inherit;font-size:12px;line-height:18px;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.dwsf-link:hover{color:var(--dsw-alias-label-primary)}
 .dwsf-btn{flex:none;height:28px;padding:0 12px;border:0;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);font-size:12px;line-height:18px;cursor:pointer}
 .dwsf-btn:hover{background:var(--dsw-alias-interactive-bg-active)}
 .dwsf-switch{flex:none;margin-top:1px;padding:0;border:0;background:0 0;cursor:pointer;border-radius:999px;line-height:0}
 .dwsf-switch:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
-.dwsf-switchTrack{display:inline-flex;align-items:center;width:34px;height:20px;padding:2px;border-radius:999px;background:var(--dsw-alias-bg-layer-2);box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l2);transition:background .16s ease,box-shadow .16s ease}
+.dwsf-switchWrap{display:inline-flex;flex:none;align-items:center;gap:8px}
+.dwsf-switchState{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.dwsf-switchState[data-on="true"]{color:var(--dsw-alias-brand-primary)}
+.dwsf-switchTrack{display:inline-flex;align-items:center;width:36px;height:20px;padding:2px;border-radius:999px;background:var(--dsw-alias-border-l1);box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l2);transition:background .16s ease,box-shadow .16s ease}
 .dwsf-switchTrack[data-on="true"]{background:var(--dsw-alias-brand-primary);box-shadow:none}
-.dwsf-switchThumb{width:16px;height:16px;border-radius:999px;background:var(--dsw-alias-bg-base);transition:transform .16s ease}
+.dwsf-switchThumb{width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .16s ease}
 .dwsf-switchTrack[data-on="true"] .dwsf-switchThumb{transform:translateX(14px)}
 .dwsf-pop{position:fixed;z-index:60;display:flex;flex-direction:column;width:min(340px,calc(100vw - 24px));max-height:60vh;border-radius:12px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);overflow:hidden}
 .dwsf-popFoot{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border-top:.5px solid var(--dsw-alias-border-l2);font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
