@@ -25,22 +25,20 @@ const CACHE_MS = 60_000
 const TIMEOUT_MS = 8_000
 const USER_AGENT = 'dsh-workspace-session-filter (+https://github.com/shijiewang/dsh-workspace-session-filter)'
 
-const cache = { at: 0, payload: null }
+const cache = { at: 0, payload: null, etag: null }
 let inflight = null
 
+/** Resolves `{ status, headers, body }` for any status the server chose to send. */
 function fetchVia(options, timeout = TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const req = httpsRequest(options, (res) => {
       const chunks = []
       res.on('data', (chunk) => chunks.push(chunk))
-      res.on('end', () => {
-        const body = Buffer.concat(chunks).toString('utf8')
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`))
-          return
-        }
-        resolve(body)
-      })
+      res.on('end', () => resolve({
+        status: res.statusCode || 0,
+        headers: res.headers || {},
+        body: Buffer.concat(chunks).toString('utf8'),
+      }))
     })
     req.setTimeout(timeout, () => req.destroy(new Error('timeout')))
     req.on('error', reject)
@@ -48,13 +46,16 @@ function fetchVia(options, timeout = TIMEOUT_MS) {
   })
 }
 
-function fetchFeedDirect() {
-  return fetchVia({
+/** A conditional GET: the feed answers 304 while nothing changed. */
+function fetchFeedDirect(etag) {
+  const headers = {
     host: FEED_HOST,
-    path: FEED_PATH,
-    method: 'GET',
-    headers: { host: FEED_HOST, accept: 'application/atom+xml', 'user-agent': USER_AGENT },
-  })
+    accept: 'application/atom+xml',
+    'user-agent': USER_AGENT,
+    'accept-encoding': 'identity',
+  }
+  if (etag) headers['if-none-match'] = etag
+  return fetchVia({ host: FEED_HOST, path: FEED_PATH, method: 'GET', headers })
 }
 
 /** Cloudflare / Google DNS-over-HTTPS JSON endpoints, addressed by IP so no lookup is needed. */
@@ -66,11 +67,12 @@ async function dohAnswers(name) {
   ]
   for (const url of endpoints) {
     try {
-      const body = await fetchVia({
+      const answer = await fetchVia({
         href: url,
         headers: { accept: 'application/dns-json', 'user-agent': USER_AGENT },
       })
-      const parsed = JSON.parse(body)
+      if (answer.status !== 200) continue
+      const parsed = JSON.parse(answer.body)
       const answers = (parsed && parsed.Answer) || []
       const values = answers
         .filter((answer) => answer && (answer.type === 1 || answer.type === 5))
@@ -94,23 +96,39 @@ async function resolveAddresses() {
   return dohAnswers(FEED_HOST)
 }
 
-async function fetchFeed() {
+async function fetchFeed(etag) {
   const attempts = []
+  const check = (answer) => {
+    if (answer.status === 304) return { notModified: true, etag }
+    if (answer.status !== 200) throw new Error(`HTTP ${answer.status}`)
+    return {
+      notModified: false,
+      body: answer.body,
+      etag: answer.headers.etag || etag,
+    }
+  }
   try {
-    return await fetchFeedDirect()
+    return check(await fetchFeedDirect(etag))
   } catch (error) {
     attempts.push(error)
   }
   const addresses = await resolveAddresses()
   for (const address of addresses) {
     try {
-      return await fetchVia({
+      const headers = {
+        host: FEED_HOST,
+        accept: 'application/atom+xml',
+        'user-agent': USER_AGENT,
+        'accept-encoding': 'identity',
+      }
+      if (etag) headers['if-none-match'] = etag
+      return check(await fetchVia({
         host: address,
         path: FEED_PATH,
         method: 'GET',
         servername: FEED_HOST,
-        headers: { host: FEED_HOST, accept: 'application/atom+xml', 'user-agent': USER_AGENT },
-      })
+        headers,
+      }))
     } catch (error) {
       attempts.push(error)
     }
@@ -214,8 +232,15 @@ async function readStatus(force = false) {
   if (inflight) return inflight
   inflight = (async () => {
     try {
-      const body = await fetchFeed()
-      const entries = parseEntries(body)
+      const answer = await fetchFeed(cache.etag)
+      if (answer.notModified && cache.payload) {
+        /* Nothing changed upstream: refresh the stamp, keep the parsed reading. */
+        cache.at = now
+        cache.payload = { ...cache.payload, fetchedAt: now, cached: true }
+        return cache.payload
+      }
+      cache.etag = answer.etag || null
+      const entries = parseEntries(answer.body)
       const summary = summarize(entries, now)
       const payload = {
         ok: true,

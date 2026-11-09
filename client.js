@@ -48,6 +48,7 @@ window.__ModuleLoader__.load({
       'status.stale': '显示的是缓存状态',
       'status.openSite': '点击打开 status.deepseek.com',
       'status.recent': '最近三次故障',
+      'status.pollNote': '每分钟订阅一次 feed（上游缓存 60 秒）',
       'status.recentNone': '近期没有故障记录',
       'incident.resolved': '已恢复',
       'incident.monitoring': '观察中',
@@ -110,6 +111,7 @@ window.__ModuleLoader__.load({
       'status.stale': 'Showing a cached reading',
       'status.openSite': 'Click to open status.deepseek.com',
       'status.recent': 'Last three incidents',
+      'status.pollNote': 'Polls the feed once a minute (upstream caches 60s)',
       'status.recentNone': 'No incidents on record',
       'incident.resolved': 'Resolved',
       'incident.monitoring': 'Monitoring',
@@ -781,7 +783,7 @@ window.__ModuleLoader__.load({
      * the dot stays grey instead of claiming "operational".
      * ------------------------------------------------------------------ */
     const STATUS_PORTS = [47100, 47101, 47102, 47103, 47104, 47105]
-    const STATUS_POLL_MS = 120_000
+    const STATUS_POLL_MS = 60_000
     let statusPort = null
 
     async function readServiceStatus() {
@@ -917,6 +919,7 @@ window.__ModuleLoader__.load({
             info && info.updated
               ? h('div', { className: 'dwsf-statusMeta' }, info.stale ? t('status.stale') : t('status.updated', { t: clockOf(info.updated) }))
               : null,
+            h('div', { className: 'dwsf-statusMeta' }, t('status.pollNote')),
             h('div', { className: 'dwsf-statusMeta' }, t('status.openSite'))
           )
         : null
