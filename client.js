@@ -1081,8 +1081,10 @@ window.__ModuleLoader__.load({
               : view.total === 0 && needle !== ''
                 ? h('div', { className: 'dwsf-empty' }, h('div', null, t('manage.empty')))
                 : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle }),
-            dialog,
-            digests
+            dialog
+          )
+        ),
+        digests
           ? h(DigestSidePanel, {
               t,
               digests,
@@ -1093,8 +1095,6 @@ window.__ModuleLoader__.load({
               onClose: closeDigests,
             })
           : null
-          )
-        )
       )
     }
 
