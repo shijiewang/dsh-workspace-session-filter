@@ -299,39 +299,57 @@ async function readStatus(force = false) {
 
 const SESSION_LOG_NAMES = ['session.v4.jsonl.zstd', 'session.jsonl.zstd', 'session.v4.jsonl', 'session.jsonl']
 
-function dataHome() {
-  return process.env.DSH_HOME || join(homedir(), '.dsh_desktop')
+/**
+ * Every DSH home this machine may keep sessions in. A desktop install uses
+ * `~/.dsh_desktop`, a `dsh web` profile uses `~/.dsh`, and DSH_HOME overrides
+ * both — the relay serves whichever of them the current process can see, so it
+ * must not assume a single layout.
+ */
+function dataHomes() {
+  const homes = []
+  const fromEnv = process.env.DSH_HOME
+  if (typeof fromEnv === 'string' && fromEnv !== '') homes.push(fromEnv)
+  const profileDir = process.env.DSH_PROFILE_DIR
+  if (typeof profileDir === 'string' && profileDir !== '') homes.push(dirname(profileDir))
+  homes.push(join(homedir(), '.dsh'), join(homedir(), '.dsh_desktop'))
+  return Array.from(new Set(homes))
 }
 
-function sessionsRoot() {
-  return join(dataHome(), 'sessions')
+function dataHome() {
+  return dataHomes()[0]
+}
+
+function sessionRoots() {
+  return dataHomes().map((home) => join(home, 'sessions')).filter((root) => existsSync(root))
 }
 
 function sessionDirs() {
-  const root = sessionsRoot()
   const found = []
-  let groups = []
-  try {
-    groups = readdirSync(root, { withFileTypes: true })
-  } catch (error) {
-    return found
-  }
-  for (const group of groups) {
-    if (!group.isDirectory() || group.name === '.trash') continue
-    const groupDir = join(root, group.name)
-    let entries = []
+  for (const root of sessionRoots()) {
+    let groups = []
     try {
-      entries = readdirSync(groupDir, { withFileTypes: true })
+      groups = readdirSync(root, { withFileTypes: true })
     } catch (error) {
       continue
     }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || !entry.name.startsWith('session')) continue
-      found.push({
-        id: entry.name.replace(/^session-/, ''),
-        dir: join(groupDir, entry.name),
-        group: group.name,
-      })
+    for (const group of groups) {
+      if (!group.isDirectory() || group.name === '.trash') continue
+      const groupDir = join(root, group.name)
+      let entries = []
+      try {
+        entries = readdirSync(groupDir, { withFileTypes: true })
+      } catch (error) {
+        continue
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !entry.name.startsWith('session')) continue
+        found.push({
+          id: entry.name.replace(/^session-/, ''),
+          dir: join(groupDir, entry.name),
+          group: group.name,
+          root,
+        })
+      }
     }
   }
   return found
@@ -535,7 +553,10 @@ function digestMarkdown(digests, meta) {
 const DIGEST_PREFIX = 'dsh-session-digest-'
 
 function digestFolders() {
-  return [join(homedir(), 'Downloads'), join(dataHome(), 'session-digests')]
+  return [
+    join(homedir(), 'Downloads'),
+    ...dataHomes().map((home) => join(home, 'session-digests')),
+  ]
 }
 
 function listDigests() {

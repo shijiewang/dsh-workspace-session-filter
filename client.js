@@ -533,6 +533,23 @@ window.__ModuleLoader__.load({
      * on disk. Both shrink the list without waiting for the Host catalog to reload. */
     const trashedIds = new Set()
     let diskIds = null
+    let diskMismatchWarned = false
+
+    /**
+     * The disk id set, but only while it overlaps the catalog this window sees.
+     * An empty overlap means the relay answered for another profile's home.
+     */
+    function usableDiskIds(catalogIds) {
+      if (!diskIds || diskIds.size === 0) return null
+      for (const id of catalogIds) {
+        if (diskIds.has(bareSessionId(id))) return diskIds
+      }
+      if (!diskMismatchWarned) {
+        diskMismatchWarned = true
+        console.warn('[workspace-session-filter] the local relay reports sessions from a different profile; ignoring it')
+      }
+      return null
+    }
 
     function deriveView(props, statusFilter, range, now) {
       const list = props.useSessions((state) => state)
@@ -547,6 +564,11 @@ window.__ModuleLoader__.load({
         if (summary && summary.retainedBy && (summary.retainedBy.mainView || 0) > 0) { currentId = id; break }
       }
 
+      /* The relay scans whatever DSH homes this machine has; a second profile
+       * (for example `dsh web` next to the desktop app) sees a different set.
+       * Only trust the disk set when it actually contains a session this window
+       * knows about, otherwise every row would look deleted. */
+      const diskFilter = usableDiskIds(list.ids || [])
       const archived = new Set(workspaces.archivedSessionIds || [])
       const cutoff = range ? now - (RANGE_MS[range] || 0) : 0
       const rows = new Map()
@@ -558,7 +580,7 @@ window.__ModuleLoader__.load({
         if (summary.blank && summary.id !== currentId) continue
         if (archived.has(summary.id)) continue
         if (trashedIds.has(summary.id)) continue
-        if (diskIds && diskIds.size > 0 && !summary.blank && !diskIds.has(bareSessionId(summary.id))) continue
+        if (diskFilter && !summary.blank && !diskFilter.has(bareSessionId(summary.id))) continue
         if (cutoff && !(summary.updatedAt >= cutoff)) continue
         const status = statuses ? statuses.get(summary.id) : undefined
         const stamp = Number(summary.updatedAt) || 0

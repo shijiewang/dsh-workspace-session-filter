@@ -129,6 +129,16 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 | `locale/zh.json`、`locale/en.json` | 插件管理器里显示的名称与描述 |
 | `icon.svg` | 插件图标 |
 
+## 多配置（profile）说明
+
+中继服务会扫描本机**所有** DSH 数据目录下的 `sessions/`——`$DSH_HOME`、`$DSH_PROFILE_DIR`
+的上两级、`~/.dsh`、`~/.dsh_desktop`——所以桌面应用（`~/.dsh_desktop`）和
+`dsh web`（`~/.dsh`）的会话都能被同一个中继看见。
+
+界面侧还有一道保护：磁盘上找到的会话 id 只有**与本窗口看到的会话有交集**时才用来过滤列表，
+否则视为「中继回答的是另一个 profile」并忽略它——避免在 web 里打开时列表被清空
+（历史上 `sessions/` 只扫 `~/.dsh_desktop` 就会这样）。
+
 ## 实现要点
 
 - **面板落位**：`sidebar.panellist` 的 `id` 与 `main` 的 `key` 复用同一个字符串
