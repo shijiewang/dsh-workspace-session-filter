@@ -511,11 +511,25 @@ findButton(tree, '清空').props.onClick()
 tree = renderInto(panelEntry[2])
 assert.ok(textOf(tree).includes('已选 0 个'), 'clear resets the selection')
 
+const pickable = buttonsWithClass(tree, 'dwsf-row').filter((node) => node.props['data-locked'] !== 'true')[0]
+pickable.props.onClick()
+tree = renderInto(panelEntry[2])
+assert.ok(textOf(tree).includes('已选 1 个'), 'one row picked again')
+
 findButton(tree, '移入回收站').props.onClick()
 tree = renderInto(panelEntry[2])
 const modal = findAll(tree, (n) => n.props.className === 'dwsf-modal')
 assert.strictEqual(modal.length, 1, 'trash asks for confirmation first')
 assert.ok(textOf(modal[0]).includes('移入回收站？'), 'confirmation dialog titled')
+const ask = findAll(modal[0], (n) => n.props.className === 'dwsf-confirmAsk')
+assert.strictEqual(ask.length, 1, 'the dialog carries an acknowledgement checkbox')
+const confirmBtn = () => findButton(tree, '确认移入')
+assert.strictEqual(confirmBtn().props.disabled, true, 'confirm stays disabled until acknowledged')
+const box = findAll(tree, (n) => n.tag === 'input' && n.props && n.props.type === 'checkbox')[0]
+box.props.onChange({ target: { checked: true } })
+tree = renderInto(panelEntry[2])
+assert.strictEqual(findButton(tree, '确认移入').props.disabled, false, 'acknowledging arms the confirm button')
+
 findButton(tree, '取消').props.onClick()
 tree = renderInto(panelEntry[2])
 assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-modal').length, 0, 'cancel closes the dialog')

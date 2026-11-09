@@ -531,6 +531,45 @@ function digestMarkdown(digests, meta) {
   return lines.join('\n')
 }
 
+
+const DIGEST_PREFIX = 'dsh-session-digest-'
+
+function digestFolders() {
+  return [join(homedir(), 'Downloads'), join(dataHome(), 'session-digests')]
+}
+
+function listDigests() {
+  const items = []
+  for (const folder of digestFolders()) {
+    if (!existsSync(folder)) continue
+    let names = []
+    try { names = readdirSync(folder) } catch (error) { continue }
+    for (const name of names) {
+      if (!name.startsWith(DIGEST_PREFIX) || !name.endsWith('.md')) continue
+      try {
+        const info = statSync(join(folder, name))
+        items.push({ name, folder, size: info.size, mtime: info.mtimeMs })
+      } catch (error) { /* vanished between readdir and stat */ }
+    }
+  }
+  items.sort((left, right) => right.mtime - left.mtime)
+  return items.slice(0, 40)
+}
+
+function readDigest(rawName) {
+  const name = String(rawName || '').replace(/^.*[\\/]/, '')
+  if (!name.startsWith(DIGEST_PREFIX) || !name.endsWith('.md')) return null
+  for (const folder of digestFolders()) {
+    const file = join(folder, name)
+    if (!existsSync(file)) continue
+    try {
+      const text = readFileSync(file, 'utf8')
+      return { ok: true, name, path: file, text, bytes: Buffer.byteLength(text) }
+    } catch (error) { /* unreadable */ }
+  }
+  return null
+}
+
 function exportDigests(ids, titles, note) {
   const known = new Map(sessionDirs().map((entry) => [entry.id, entry]))
   const digests = []
@@ -555,7 +594,7 @@ function exportDigests(ids, titles, note) {
   mkdirSync(target, { recursive: true })
   const file = join(target, `dsh-session-digest-${stamp}.md`)
   writeFileSync(file, markdown, 'utf8')
-  return { ok: true, file, sessions: digests.length, missing, bytes: Buffer.byteLength(markdown) }
+  return { ok: true, file, name: `dsh-session-digest-${stamp}.md`, sessions: digests.length, missing, bytes: Buffer.byteLength(markdown) }
 }
 
 function trashSessions(ids) {
@@ -669,6 +708,26 @@ function createRelay() {
     }
     if (request.method !== 'GET') {
       sendJson(response, 405, { ok: false, error: 'method not allowed' })
+      return
+    }
+    if (url.startsWith('/sessions')) {
+      const ids = sessionDirs().map((entry) => entry.id)
+      sendJson(response, 200, { ok: true, count: ids.length, ids })
+      return
+    }
+    if (url.startsWith('/digests')) {
+      sendJson(response, 200, { ok: true, items: listDigests() })
+      return
+    }
+    if (url.startsWith('/digest')) {
+      const query = url.indexOf('?')
+      const params = new URLSearchParams(query === -1 ? '' : url.slice(query + 1))
+      const found = readDigest(params.get('file'))
+      if (!found) {
+        sendJson(response, 404, { ok: false, error: 'digest not found' })
+        return
+      }
+      sendJson(response, 200, found)
       return
     }
     if (url.startsWith('/status')) {

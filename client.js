@@ -477,6 +477,11 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /* Sessions this window moved to the trash, and the ids the relay still finds
+     * on disk. Both shrink the list without waiting for the Host catalog to reload. */
+    const trashedIds = new Set()
+    let diskIds = null
+
     function deriveView(props, statusFilter, range, now) {
       const list = props.useSessions((state) => state)
       const workspaces = props.useWorkspaces((state) => state)
@@ -500,6 +505,8 @@ window.__ModuleLoader__.load({
         if (summary.origin === 'subagent') continue
         if (summary.blank && summary.id !== currentId) continue
         if (archived.has(summary.id)) continue
+        if (trashedIds.has(summary.id)) continue
+        if (diskIds && !summary.blank && !diskIds.has(summary.id)) continue
         if (cutoff && !(summary.updatedAt >= cutoff)) continue
         const status = statuses ? statuses.get(summary.id) : undefined
         const stamp = Number(summary.updatedAt) || 0
@@ -784,11 +791,21 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState(false)
       const [notice, setNotice] = useState('')
       const [confirming, setConfirming] = useState(false)
+      const [understood, setUnderstood] = useState(false)
+      const [digest, setDigest] = useState(null)
       const [, setTick] = useState(0)
 
       useEffect(() => {
         const timer = setInterval(() => setTick((value) => value + 1), 60000)
         return () => clearInterval(timer)
+      }, [])
+
+      /* Drop sessions that no longer exist on disk, so a trashed row leaves the
+       * list even though the Host catalog still remembers it. */
+      useEffect(() => {
+        let alive = true
+        loadDiskIds().then(() => { if (alive) setTick((value) => value + 1) }, () => {})
+        return () => { alive = false }
       }, [])
 
       const now = Date.now()
@@ -812,6 +829,7 @@ window.__ModuleLoader__.load({
       const leaveManaging = () => {
         setManaging(false)
         setConfirming(false)
+        setUnderstood(false)
         setPicked(new Set())
         setNotice('')
       }
@@ -819,6 +837,16 @@ window.__ModuleLoader__.load({
         const map = {}
         for (const row of rows) map[row.id] = row.title
         return map
+      }
+      const openDigest = async (name) => {
+        if (!name) return
+        setDigest({ name, loading: true })
+        try {
+          const data = await relayGet(`/digest?file=${encodeURIComponent(name)}`)
+          setDigest({ name, text: data.text || '', path: data.path || '' })
+        } catch (error) {
+          setDigest({ name, error: (error && error.message) || String(error) })
+        }
       }
       const exportNow = async () => {
         const payload = { ids: [...picked], titles: titles(), note: '' }
@@ -833,6 +861,7 @@ window.__ModuleLoader__.load({
         try {
           const result = await exportNow()
           setNotice(t('manage.exported', { n: String(result.sessions || picked.size), path: result.file || '' }))
+          setDigest({ name: result.name || String(result.file || '').split('/').pop() })
         } catch (error) {
           setNotice(t('manage.failed', { error: (error && error.message) || String(error) }))
         } finally {
@@ -843,15 +872,19 @@ window.__ModuleLoader__.load({
         if (picked.size === 0 || busy) return
         setBusy(true)
         setConfirming(false)
+        setUnderstood(false)
         try {
-          await exportNow()
+          const exported = await exportNow()
           const targets = [...picked].filter((id) => id !== base.currentId)
           const result = await relayCall('/trash', { ids: targets })
           if (!result || result.ok === false) {
             throw new Error(result && result.failed && result.failed[0] ? result.failed[0].reason : 'trash failed')
           }
+          for (const id of (result.moved || [])) trashedIds.add(id)
           setNotice(t('manage.trashed', { n: String((result.moved || []).length) }))
+          setDigest({ name: exported.name || String(exported.file || '').split('/').pop() })
           setPicked(new Set())
+          loadDiskIds().then(() => setTick((value) => value + 1), () => {})
         } catch (error) {
           setNotice(t('manage.failed', { error: (error && error.message) || String(error) }))
         } finally {
@@ -892,13 +925,22 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dwsf-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('manage.confirmTitle') },
               h('div', { className: 'dwsf-modalTitle' }, t('manage.confirmTitle')),
               h('div', { className: 'dwsf-modalBody' }, t('manage.confirmBody', { n: String(picked.size) })),
+              h('label', { className: 'dwsf-confirmAsk' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: understood,
+                  onChange: (event) => setUnderstood(event.target.checked),
+                }),
+                h('span', null, t('manage.confirmCheck'))
+              ),
               h('div', { className: 'dwsf-modalActions' },
                 h('button', {
                   type: 'button', className: 'dwsf-btn dwsf-btnGhost',
-                  onClick: () => setConfirming(false),
+                  onClick: () => { setConfirming(false); setUnderstood(false) },
                 }, t('manage.confirmCancel')),
                 h('button', {
                   type: 'button', className: 'dwsf-btn dwsf-btnDanger',
+                  disabled: !understood,
                   onClick: runTrash,
                 }, t('manage.confirmOk'))
               )
@@ -957,13 +999,119 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dwsf-spacer' }),
               h(RangeMenu, { t, value: range, onChange: setRange })
             ),
-            notice !== '' ? h('div', { className: 'dwsf-notice', role: 'status' }, notice) : null,
+            notice !== ''
+              ? h('div', { className: 'dwsf-notice', role: 'status' },
+                  h('span', { className: 'dwsf-noticeText' }, notice),
+                  digest && digest.name
+                    ? h('button', {
+                        type: 'button',
+                        className: 'dwsf-link',
+                        onClick: () => openDigest(digest.name),
+                      }, t('manage.preview'))
+                    : null
+                )
+              : null,
             view.loading
               ? h('div', { className: 'dwsf-empty' }, h('div', null, t('empty.loading')))
               : view.total === 0 && needle !== ''
                 ? h('div', { className: 'dwsf-empty' }, h('div', null, t('manage.empty')))
                 : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle }),
-            dialog
+            dialog,
+            digest && digest.name ? h(DigestPreview, { t, digest, onClose: () => setDigest(null) }) : null
+          )
+        )
+      )
+    }
+
+    /** Markdown → a small, readable tree. Only what the digest writer emits. */
+    function renderDigest(text) {
+      const source = String(text || '')
+      const lines = source.split('\n')
+      const inline = (value) => {
+        const parts = []
+        const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g
+        let last = 0
+        let match = pattern.exec(value)
+        let key = 0
+        while (match) {
+          if (match.index > last) parts.push(value.slice(last, match.index))
+          const token = match[0]
+          if (token.startsWith('**')) parts.push(h('strong', { key: `b${key++}` }, token.slice(2, -2)))
+          else parts.push(h('code', { key: `c${key++}` }, token.slice(1, -1)))
+          last = match.index + token.length
+          match = pattern.exec(value)
+        }
+        if (last < value.length) parts.push(value.slice(last))
+        return parts
+      }
+      const cells = (line) => line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim())
+      const out = []
+      let index = 0
+      let key = 0
+      while (index < lines.length) {
+        const line = lines[index]
+        if (/^```/.test(line)) {
+          const body = []
+          index += 1
+          while (index < lines.length && !/^```/.test(lines[index])) { body.push(lines[index]); index += 1 }
+          index += 1
+          out.push(h('pre', { key: `pre${key++}`, className: 'dwsf-pre' }, body.join('\n')))
+          continue
+        }
+        if (/^#{1,3}\s/.test(line)) {
+          const level = /^#/.test(line) ? line.match(/^#{1,3}/)[0].length : 1
+          const tag = level === 1 ? 'h1' : level === 2 ? 'h2' : 'h3'
+          out.push(h(tag, { key: `h${key++}`, className: `dwsf-mdh dwsf-mdh${level}` }, inline(line.replace(/^#{1,3}\s/, ''))))
+          index += 1
+          continue
+        }
+        if (/^\|/.test(line)) {
+          const tableRows = []
+          while (index < lines.length && /^\|/.test(lines[index])) { tableRows.push(lines[index]); index += 1 }
+          const head = cells(tableRows[0])
+          const bodyRows = tableRows.slice(1).filter((row) => !/^\|[\s:|-]+\|?$/.test(row)).map(cells)
+          out.push(h('table', { key: `t${key++}`, className: 'dwsf-table' },
+            h('thead', null, h('tr', null, head.map((cell, cellIndex) => h('th', { key: `th${cellIndex}` }, inline(cell))))),
+            h('tbody', null, bodyRows.map((row, rowIndex) => h('tr', { key: `tr${rowIndex}` },
+              row.map((cell, cellIndex) => h('td', { key: `td${cellIndex}` }, inline(cell))))))
+          ))
+          continue
+        }
+        if (/^[-*]\s/.test(line)) {
+          const items = []
+          while (index < lines.length && /^[-*]\s/.test(lines[index])) {
+            items.push(h('li', { key: `li${key++}` }, inline(lines[index].replace(/^[-*]\s/, ''))))
+            index += 1
+          }
+          out.push(h('ul', { key: `ul${key++}`, className: 'dwsf-ul' }, items))
+          continue
+        }
+        if (line.trim() === '') { index += 1; continue }
+        const paragraph = []
+        while (index < lines.length && lines[index].trim() !== '' && !/^(#{1,3}\s|\||[-*]\s|```)/.test(lines[index])) {
+          paragraph.push(lines[index])
+          index += 1
+        }
+        out.push(h('p', { key: `p${key++}`, className: 'dwsf-mdp' }, inline(paragraph.join(' '))))
+      }
+      return out
+    }
+
+    function DigestPreview(props) {
+      const t = props.t
+      const digest = props.digest
+      const body = digest.error
+        ? h('div', { className: 'dwsf-empty' }, t('manage.previewFailed', { error: digest.error }))
+        : digest.text === undefined
+          ? h('div', { className: 'dwsf-empty' }, t('manage.previewLoading'))
+          : h('div', { className: 'dwsf-previewBody' }, renderDigest(digest.text))
+      return h('div', { className: 'dwsf-modalBackdrop', role: 'presentation' },
+        h('div', { className: 'dwsf-modal dwsf-previewModal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('manage.previewTitle') },
+          h('div', { className: 'dwsf-modalTitle' }, t('manage.previewTitle')),
+          h('div', { className: 'dwsf-previewPath' }, digest.name),
+          body,
+          h('div', { className: 'dwsf-modalActions' },
+            h('button', { type: 'button', className: 'dwsf-btn dwsf-btnGhost', onClick: props.onClose }, t('manage.previewClose'))
           )
         )
       )
@@ -1008,6 +1156,42 @@ window.__ModuleLoader__.load({
     const STATUS_PORTS = [47100, 47101, 47102, 47103, 47104, 47105]
     const STATUS_POLL_MS = 60_000
     let statusPort = null
+
+    async function relayGet(path) {
+      if (typeof fetch !== 'function') throw new Error('fetch unavailable')
+      const ports = statusPort === null ? STATUS_PORTS : [statusPort, ...STATUS_PORTS.filter((port) => port !== statusPort)]
+      let lastError = null
+      for (const port of ports) {
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}${path}`, { cache: 'no-store' })
+          if (!response || !response.ok) {
+            lastError = new Error(`relay ${response ? response.status : 'unreachable'}`)
+            continue
+          }
+          const data = await response.json()
+          if (data && typeof data === 'object') {
+            statusPort = port
+            return data
+          }
+        } catch (error) {
+          lastError = error
+        }
+      }
+      throw lastError || new Error('relay unavailable')
+    }
+
+    /* The Host catalog keeps a trashed session until it rescans; ask the relay
+     * which ids still exist on disk so the list stops showing them at once. */
+    async function loadDiskIds() {
+      try {
+        const data = await relayGet('/sessions')
+        if (data && data.ok !== false && Array.isArray(data.ids)) {
+          diskIds = new Set(data.ids)
+          return diskIds
+        }
+      } catch (error) { /* relay not up yet: leave the list as the Host reports it */ }
+      return null
+    }
 
     async function relayCall(path, payload) {
       if (typeof fetch !== 'function') throw new Error('fetch unavailable')
@@ -1629,6 +1813,25 @@ window.__ModuleLoader__.load({
 .dwsf-modalTitle{color:var(--dsw-alias-label-primary);font-size:15px;font-weight:500;line-height:22px}
 .dwsf-modalBody{margin-top:6px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}
 .dwsf-modalActions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.dwsf-confirmAsk{display:flex;align-items:flex-start;gap:8px;margin-top:12px;padding:8px 10px;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;cursor:pointer}
+.dwsf-confirmAsk input{margin:2px 0 0;accent-color:var(--dsw-alias-brand-primary)}
+.dwsf-previewModal{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(80vh,720px)}
+.dwsf-previewPath{margin-top:4px;color:var(--dsw-alias-label-caption);font-size:11px;line-height:16px;word-break:break-all}
+.dwsf-previewBody{margin-top:12px;padding-right:4px;overflow:auto;color:var(--dsw-alias-label-primary);font-size:13px;line-height:21px}
+.dwsf-previewBody h1{margin:0 0 8px;font-size:17px;font-weight:600;line-height:24px}
+.dwsf-previewBody h2{margin:16px 0 6px;padding-top:10px;border-top:.5px solid var(--dsw-alias-border-l1);font-size:14px;font-weight:600;line-height:22px}
+.dwsf-previewBody h3{margin:12px 0 4px;font-size:13px;font-weight:600;line-height:20px}
+.dwsf-previewBody p{margin:0 0 8px}
+.dwsf-previewBody ul{margin:0 0 8px;padding-left:18px}
+.dwsf-previewBody li{margin:2px 0}
+.dwsf-previewBody table{width:100%;margin:6px 0 10px;border-collapse:collapse;font-size:12px;line-height:18px}
+.dwsf-previewBody th,.dwsf-previewBody td{padding:4px 6px;border:.5px solid var(--dsw-alias-border-l1);text-align:left;vertical-align:top}
+.dwsf-previewBody th{background:var(--dsw-alias-interactive-bg-hover);font-weight:600}
+.dwsf-previewBody code{padding:1px 4px;border-radius:4px;background:var(--dsw-alias-interactive-bg-hover);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.dwsf-previewBody pre{margin:6px 0 10px;padding:8px 10px;overflow:auto;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-interactive-bg-hover);font-size:12px;line-height:18px}
+.dwsf-previewBody pre code{padding:0;background:0 0}
+.dwsf-previewBody strong{font-weight:600}
+
 `
 
     /* ------------------------------------------------------------------ *
