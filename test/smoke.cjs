@@ -448,4 +448,63 @@ tree = renderInto(panelEntry[2])
 assert.ok(textOf(tree).includes('没有符合条件的会话'))
 assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').length, 0)
 
+statusMap.clear()
+hookStore.clear()
+tree = renderInto(panelEntry[2])
+const findButton = (root, label) => findAll(root, (n) => typeof n.props.className === 'string'
+  && n.props.className.startsWith('dwsf-btn') && typeof n.props.onClick === 'function'
+  && textOf(n).trim() === label)[0]
+const manageOpen = findButton(tree, '管理')
+assert.ok(manageOpen, 'manage button present')
+manageOpen.props.onClick()
+tree = renderInto(panelEntry[2])
+const manageBar = findAll(tree, (n) => n.props.className === 'dwsf-manageBar')
+assert.strictEqual(manageBar.length, 1, 'manage bar rendered')
+const searchInput = findAll(tree, (n) => n.props.className === 'dwsf-search')[0]
+assert.strictEqual(searchInput.props.placeholder, '搜索标题或路径', 'search placeholder localized')
+assert.ok(textOf(tree).includes('已选 0 个'), 'picked counter starts at zero')
+const exportBtn = findButton(tree, '导出 Markdown')
+assert.ok(exportBtn && exportBtn.props.disabled === true, 'export disabled while nothing is picked')
+
+const openedBefore = registered.opened.length
+let manageRows = buttonsWithClass(tree, 'dwsf-row')
+assert.ok(manageRows.length > 0, 'rows rendered in manage mode')
+const firstPickable = manageRows.filter((node) => node.props['data-locked'] !== 'true')[0]
+assert.ok(firstPickable, 'at least one session is pickable')
+firstPickable.props.onClick()
+tree = renderInto(panelEntry[2])
+manageRows = buttonsWithClass(tree, 'dwsf-row')
+const lockedRows = manageRows.filter((node) => node.props['data-locked'] === 'true')
+assert.strictEqual(lockedRows.length, 1, 'the open session is locked in manage mode')
+lockedRows[0].props.onClick()
+tree = renderInto(panelEntry[2])
+assert.ok(textOf(tree).includes('已选 1 个'), 'locked row cannot be picked')
+const pickedRow = buttonsWithClass(tree, 'dwsf-row').filter((node) => node.props['aria-pressed'] === 'true')[0]
+assert.ok(pickedRow, 'row toggles instead of opening')
+assert.strictEqual(registered.opened.length, openedBefore, 'clicking a row in manage mode does not open the session')
+assert.ok(textOf(tree).includes('已选 1 个'), 'picked counter increments')
+assert.strictEqual(findButton(tree, '导出 Markdown').props.disabled, false, 'export enabled after picking')
+assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-check' && n.props['data-on'] === 'true').length, 1, 'checkbox shows a check mark')
+
+findButton(tree, '全选').props.onClick()
+tree = renderInto(panelEntry[2])
+assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').filter((node) => node.props['data-locked'] !== 'true').every((node) => node.props['aria-pressed'] === 'true'), true, 'select all picks every visible row')
+assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').filter((node) => node.props['data-locked'] === 'true').every((node) => node.props['aria-pressed'] === 'false'), true, 'select all leaves the open session alone')
+findButton(tree, '清空').props.onClick()
+tree = renderInto(panelEntry[2])
+assert.ok(textOf(tree).includes('已选 0 个'), 'clear resets the selection')
+
+findButton(tree, '移入回收站').props.onClick()
+tree = renderInto(panelEntry[2])
+const modal = findAll(tree, (n) => n.props.className === 'dwsf-modal')
+assert.strictEqual(modal.length, 1, 'trash asks for confirmation first')
+assert.ok(textOf(modal[0]).includes('移入回收站？'), 'confirmation dialog titled')
+findButton(tree, '取消').props.onClick()
+tree = renderInto(panelEntry[2])
+assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-modal').length, 0, 'cancel closes the dialog')
+
+findButton(tree, '完成').props.onClick()
+tree = renderInto(panelEntry[2])
+assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-manageBar').length, 0, 'leaving manage mode hides the bar')
+
 console.log('smoke: ok')

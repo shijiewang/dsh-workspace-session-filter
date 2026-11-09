@@ -48,6 +48,25 @@ window.__ModuleLoader__.load({
       'status.stale': '显示的是缓存状态',
       'status.openSite': '点击打开 status.deepseek.com',
       'status.recent': '最近三次故障',
+      'manage.open': '管理',
+      'manage.close': '完成',
+      'manage.search': '搜索标题或路径',
+      'manage.picked': '已选 {n} 个',
+      'manage.selectAll': '全选',
+      'manage.clear': '清空',
+      'manage.export': '导出 Markdown',
+      'manage.trash': '移入回收站',
+      'manage.empty': '没有匹配的会话',
+      'manage.confirmTitle': '移入回收站？',
+      'manage.confirmBody': '会先写出一份 Markdown 摘要（{n} 个会话，保存到「下载」），再把会话目录移到 ~/.dsh_desktop/sessions/.trash/。需要恢复时把目录移回原位即可。',
+      'manage.confirmCancel': '取消',
+      'manage.confirmOk': '确认移入',
+      'manage.busy': '处理中…',
+      'manage.exported': '已导出 {n} 个会话：{path}',
+      'manage.trashed': '已把 {n} 个会话移入回收站（刷新窗口后列表更新）',
+      'manage.failed': '执行失败：{error}',
+      'manage.offline': '本地中继未运行，重启应用后再试',
+      'manage.locked': '当前打开的会话不能移入回收站',
       'status.pollNote': '每分钟订阅一次 feed（上游缓存 60 秒）',
       'status.recentNone': '近期没有故障记录',
       'incident.resolved': '已恢复',
@@ -111,6 +130,24 @@ window.__ModuleLoader__.load({
       'status.stale': 'Showing a cached reading',
       'status.openSite': 'Click to open status.deepseek.com',
       'status.recent': 'Last three incidents',
+      'manage.open': 'Manage',
+      'manage.close': 'Done',
+      'manage.search': 'Search titles or paths',
+      'manage.picked': '{n} selected',
+      'manage.selectAll': 'Select all',
+      'manage.clear': 'Clear',
+      'manage.export': 'Export Markdown',
+      'manage.trash': 'Move to trash',
+      'manage.empty': 'No session matches',
+      'manage.confirmTitle': 'Move to the trash?',
+      'manage.confirmBody': 'A Markdown digest of the {n} selected sessions is written to Downloads first, then their directories move to ~/.dsh_desktop/sessions/.trash/. Move a directory back to restore it.',
+      'manage.confirmCancel': 'Cancel',
+      'manage.confirmOk': 'Move them',
+      'manage.busy': 'Working…',
+      'manage.exported': 'Exported {n} sessions: {path}',
+      'manage.trashed': 'Moved {n} sessions to the trash (reload to refresh the list)',
+      'manage.failed': 'Failed: {error}',
+      'manage.offline': 'The local relay is not running; restart the app and retry',
       'status.pollNote': 'Polls the feed once a minute (upstream caches 60s)',
       'status.recentNone': 'No incidents on record',
       'incident.resolved': 'Resolved',
@@ -623,6 +660,9 @@ window.__ModuleLoader__.load({
     function SessionRow(props) {
       const row = props.row
       const t = props.t
+      const managing = props.managing === true
+      const locked = managing && props.locked === true
+      const picked = props.picked === true
       const meta = []
       if (row.label !== '') {
         meta.push(h('span', { key: 'state', className: 'dwsf-state', 'data-state': row.dot }, row.label))
@@ -640,11 +680,26 @@ window.__ModuleLoader__.load({
         'data-state': row.dot,
         'data-blank': row.blank ? 'true' : 'false',
         'data-current': row.id === props.currentId ? 'true' : 'false',
-        title: row.title,
-        'aria-label': t('session.open', { name: row.title }),
-        onClick: () => props.onOpen(row.id),
+        'data-managing': managing ? 'true' : 'false',
+        'data-picked': picked ? 'true' : 'false',
+        'data-locked': locked ? 'true' : 'false',
+        title: locked ? t('manage.locked') : row.title,
+        'aria-pressed': managing ? (picked ? 'true' : 'false') : undefined,
+        'aria-label': managing
+          ? `${picked ? '✓ ' : ''}${row.title}`
+          : t('session.open', { name: row.title }),
+        onClick: () => {
+          if (managing) {
+            if (!locked) props.onToggle(row.id)
+            return
+          }
+          props.onOpen(row.id)
+        },
       },
-        h(StatusDot, { state: row.dot }),
+        managing
+          ? h('span', { className: 'dwsf-check', 'data-on': picked ? 'true' : 'false', 'aria-hidden': 'true' },
+              picked ? h(CheckGlyph, null) : null)
+          : h(StatusDot, { state: row.dot }),
         h('span', { className: 'dwsf-title' }, row.title),
         meta.length > 0 ? h('span', { className: 'dwsf-meta' }, meta) : null
       )
@@ -652,7 +707,7 @@ window.__ModuleLoader__.load({
 
     /** Workspace-grouped session rows, shared by the panel and the sidebar popover. */
     function Groups(props) {
-      const { view, t, now, onOpen } = props
+      const { view, t, now, onOpen, managing, picked, onToggle } = props
       if (view.groups.length === 0) {
         return h('div', { className: 'dwsf-empty' },
           h('div', { className: 'dwsf-emptyTitle' }, t('empty.title')),
@@ -676,14 +731,38 @@ window.__ModuleLoader__.load({
           now,
           currentId: view.currentId,
           onOpen,
+          managing,
+          locked: managing === true && row.id === view.currentId,
+          picked: Boolean(picked && picked.has(row.id)),
+          onToggle,
         })))
       )))
+    }
+
+    /** Keyword narrow: keeps rows whose title or workspace path matches. */
+    function narrowView(view, needle) {
+      const groups = []
+      for (const group of view.groups) {
+        const rows = group.rows.filter((row) => {
+          const haystack = `${row.title}\n${row.cwd || ''}\n${group.title}`.toLowerCase()
+          return haystack.indexOf(needle) !== -1
+        })
+        if (rows.length > 0) groups.push({ key: group.key, title: group.title, rows })
+      }
+      const total = groups.reduce((sum, group) => sum + group.rows.length, 0)
+      return { groups, total, currentId: view.currentId, loading: view.loading }
     }
 
     function SessionFilterPage(props) {
       const t = props.t
       const [statusFilter, setStatusFilter] = useState('all')
       const [range, setRange] = useState(null)
+      const [managing, setManaging] = useState(false)
+      const [query, setQuery] = useState('')
+      const [picked, setPicked] = useState(() => new Set())
+      const [busy, setBusy] = useState(false)
+      const [notice, setNotice] = useState('')
+      const [confirming, setConfirming] = useState(false)
       const [, setTick] = useState(0)
 
       useEffect(() => {
@@ -692,12 +771,119 @@ window.__ModuleLoader__.load({
       }, [])
 
       const now = Date.now()
-      const view = deriveView(props, statusFilter, range, now)
+      const base = deriveView(props, statusFilter, range, now)
+      const needle = query.trim().toLowerCase()
+      const view = needle === '' ? base : narrowView(base, needle)
+      const rows = view.groups.reduce((all, group) => all.concat(group.rows), [])
+      const ids = rows.filter((row) => row.id !== base.currentId).map((row) => row.id)
+      const allPicked = ids.length > 0 && ids.every((id) => picked.has(id))
       const onOpen = (sessionId) => {
         markSeen(sessionId, Date.now())
         props.onOpen(sessionId)
       }
+      const toggle = (sessionId) => setPicked((current) => {
+        const next = new Set(current)
+        if (next.has(sessionId)) next.delete(sessionId)
+        else next.add(sessionId)
+        return next
+      })
+      const toggleAll = () => setPicked(allPicked ? new Set() : new Set(ids))
+      const leaveManaging = () => {
+        setManaging(false)
+        setConfirming(false)
+        setPicked(new Set())
+        setNotice('')
+      }
+      const titles = () => {
+        const map = {}
+        for (const row of rows) map[row.id] = row.title
+        return map
+      }
+      const exportNow = async () => {
+        const payload = { ids: [...picked], titles: titles(), note: '' }
+        const result = await relayCall('/export', payload)
+        if (!result || result.ok === false) throw new Error((result && result.error) || 'export failed')
+        return result
+      }
+      const runExport = async () => {
+        if (picked.size === 0 || busy) return
+        setBusy(true)
+        setNotice('')
+        try {
+          const result = await exportNow()
+          setNotice(t('manage.exported', { n: String(result.sessions || picked.size), path: result.file || '' }))
+        } catch (error) {
+          setNotice(t('manage.failed', { error: (error && error.message) || String(error) }))
+        } finally {
+          setBusy(false)
+        }
+      }
+      const runTrash = async () => {
+        if (picked.size === 0 || busy) return
+        setBusy(true)
+        setConfirming(false)
+        try {
+          await exportNow()
+          const targets = [...picked].filter((id) => id !== base.currentId)
+          const result = await relayCall('/trash', { ids: targets })
+          if (!result || result.ok === false) {
+            throw new Error(result && result.failed && result.failed[0] ? result.failed[0].reason : 'trash failed')
+          }
+          setNotice(t('manage.trashed', { n: String((result.moved || []).length) }))
+          setPicked(new Set())
+        } catch (error) {
+          setNotice(t('manage.failed', { error: (error && error.message) || String(error) }))
+        } finally {
+          setBusy(false)
+        }
+      }
       const filtered = statusFilter !== 'all' || range !== null
+
+      const toolbar = managing
+        ? h('div', { className: 'dwsf-manageBar' },
+            h('input', {
+              className: 'dwsf-search',
+              type: 'search',
+              value: query,
+              placeholder: t('manage.search'),
+              'aria-label': t('manage.search'),
+              onChange: (event) => setQuery(event.target.value),
+            }),
+            h('span', { className: 'dwsf-manageCount' }, t('manage.picked', { n: String(picked.size) })),
+            h('button', {
+              type: 'button', className: 'dwsf-btn dwsf-btnGhost',
+              onClick: toggleAll,
+            }, allPicked ? t('manage.clear') : t('manage.selectAll')),
+            h('span', { className: 'dwsf-spacer' }),
+            h('button', {
+              type: 'button', className: 'dwsf-btn dwsf-btnGhost', disabled: picked.size === 0 || busy,
+              onClick: runExport,
+            }, t('manage.export')),
+            h('button', {
+              type: 'button', className: 'dwsf-btn dwsf-btnDanger', disabled: picked.size === 0 || busy,
+              onClick: () => setConfirming(true),
+            }, t('manage.trash'))
+          )
+        : null
+
+      const dialog = confirming
+        ? h('div', { className: 'dwsf-modalBackdrop', role: 'presentation' },
+            h('div', { className: 'dwsf-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('manage.confirmTitle') },
+              h('div', { className: 'dwsf-modalTitle' }, t('manage.confirmTitle')),
+              h('div', { className: 'dwsf-modalBody' }, t('manage.confirmBody', { n: String(picked.size) })),
+              h('div', { className: 'dwsf-modalActions' },
+                h('button', {
+                  type: 'button', className: 'dwsf-btn dwsf-btnGhost',
+                  onClick: () => setConfirming(false),
+                }, t('manage.confirmCancel')),
+                h('button', {
+                  type: 'button', className: 'dwsf-btn dwsf-btnDanger',
+                  onClick: runTrash,
+                }, t('manage.confirmOk'))
+              )
+            )
+          )
+        : null
 
       return h('div', { className: 'dwsf-page' },
         h('div', { className: 'dwsf-scroll' },
@@ -705,27 +891,34 @@ window.__ModuleLoader__.load({
             h('header', { className: 'dwsf-heading' },
               h('h1', { tabIndex: -1 }, t('panel.title')),
               h('span', { className: 'dwsf-headingMeta' },
-                t('panel.summary', { n: view.total, w: view.groups.length }))
+                t('panel.summary', { n: view.total, w: view.groups.length })),
+              h('button', {
+                type: 'button',
+                className: 'dwsf-btn dwsf-btnGhost',
+                'data-active': managing ? 'true' : 'false',
+                onClick: () => (managing ? leaveManaging() : setManaging(true)),
+              }, managing ? t('manage.close') : t('manage.open'))
             ),
+            toolbar,
             h('div', { className: 'dwsf-filters', role: 'group', 'aria-label': t('filter.aria') },
               h(FilterTab, {
-                label: t('filter.all'), count: view.counts.all, active: statusFilter === 'all',
+                label: t('filter.all'), count: base.counts.all, active: statusFilter === 'all',
                 onClick: () => setStatusFilter('all'),
               }),
               h(FilterTab, {
-                label: t('filter.running'), count: view.counts.running, active: statusFilter === 'running',
+                label: t('filter.running'), count: base.counts.running, active: statusFilter === 'running',
                 onClick: () => setStatusFilter(statusFilter === 'running' ? 'all' : 'running'),
               }),
               h(FilterTab, {
-                label: t('filter.awaiting'), count: view.counts.awaiting, active: statusFilter === 'awaiting',
+                label: t('filter.awaiting'), count: base.counts.awaiting, active: statusFilter === 'awaiting',
                 onClick: () => setStatusFilter(statusFilter === 'awaiting' ? 'all' : 'awaiting'),
               }),
               h(FilterTab, {
-                label: t('filter.unread'), count: view.counts.unread, active: statusFilter === 'unread',
+                label: t('filter.unread'), count: base.counts.unread, active: statusFilter === 'unread',
                 onClick: () => setStatusFilter(statusFilter === 'unread' ? 'all' : 'unread'),
               }),
               h(FilterTab, {
-                label: t('filter.today'), count: view.counts.today, active: statusFilter === 'today',
+                label: t('filter.today'), count: base.counts.today, active: statusFilter === 'today',
                 onClick: () => setStatusFilter(statusFilter === 'today' ? 'all' : 'today'),
               }),
               filtered
@@ -738,9 +931,13 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dwsf-spacer' }),
               h(RangeMenu, { t, value: range, onChange: setRange })
             ),
+            notice !== '' ? h('div', { className: 'dwsf-notice', role: 'status' }, notice) : null,
             view.loading
               ? h('div', { className: 'dwsf-empty' }, h('div', null, t('empty.loading')))
-              : h(Groups, { view, t, now, onOpen })
+              : view.total === 0 && needle !== ''
+                ? h('div', { className: 'dwsf-empty' }, h('div', null, t('manage.empty')))
+                : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle }),
+            dialog
           )
         )
       )
@@ -785,6 +982,34 @@ window.__ModuleLoader__.load({
     const STATUS_PORTS = [47100, 47101, 47102, 47103, 47104, 47105]
     const STATUS_POLL_MS = 60_000
     let statusPort = null
+
+    async function relayCall(path, payload) {
+      if (typeof fetch !== 'function') throw new Error('fetch unavailable')
+      const ports = statusPort === null ? STATUS_PORTS : [statusPort, ...STATUS_PORTS.filter((port) => port !== statusPort)]
+      let lastError = null
+      for (const port of ports) {
+        try {
+          const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload || {}),
+            cache: 'no-store',
+          })
+          if (!response || !response.ok) {
+            lastError = new Error(`relay ${response ? response.status : 'unreachable'}`)
+            continue
+          }
+          const data = await response.json()
+          if (data && typeof data === 'object') {
+            statusPort = port
+            return data
+          }
+        } catch (error) {
+          lastError = error
+        }
+      }
+      throw lastError || new Error('relay unavailable')
+    }
 
     async function readServiceStatus() {
       if (typeof fetch !== 'function') return null
@@ -1317,6 +1542,29 @@ window.__ModuleLoader__.load({
 .dwsf-popBody{flex:1;min-height:0;padding:0 8px 10px;overflow:auto;--dsh-scrollbar-width:9px}
 .dwsf-pop .dwsf-groupHead{padding:10px 8px 4px}
 .dwsf-pop .dwsf-empty{padding:28px 16px}
+.dwsf-manageBar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 12px}
+.dwsf-search{flex:1 1 200px;min-width:140px;height:30px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px}
+.dwsf-search::placeholder{color:var(--dsw-alias-label-caption)}
+.dwsf-search:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-1px}
+.dwsf-manageCount{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
+.dwsf-btn{display:inline-flex;align-items:center;justify-content:center;height:28px;padding:0 12px;border:0;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}
+.dwsf-btn:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dwsf-btn[disabled]{opacity:.45;cursor:default}
+.dwsf-btnGhost{background:0 0;color:var(--dsw-alias-label-secondary)}
+.dwsf-btnGhost:hover,.dwsf-btnGhost[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dwsf-btnDanger{background:0 0;color:var(--dsw-alias-state-error-primary)}
+.dwsf-btnDanger:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.dwsf-headingMeta{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
+.dwsf-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border:.5px solid var(--dsw-alias-border-l2);border-radius:4px;color:var(--dsw-alias-label-primary-inverted)}
+.dwsf-check[data-on="true"]{border-color:var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-primary)}
+.dwsf-row[data-managing="true"][data-picked="true"]{background:var(--dsw-alias-interactive-bg-hover)}
+.dwsf-row[data-locked="true"]{opacity:.5;cursor:default}
+.dwsf-notice{margin:0 0 12px;padding:8px 10px;border-radius:var(--dsw-radius-md);background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;word-break:break-word}
+.dwsf-modalBackdrop{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--dsw-alias-bg-overlay)}
+.dwsf-modal{width:min(420px,100%);padding:18px 18px 14px;border-radius:var(--dsw-radius-lg);background:var(--dsw-specific-menu);box-shadow:var(--dsw-elevation-prominent)}
+.dwsf-modalTitle{color:var(--dsw-alias-label-primary);font-size:15px;font-weight:500;line-height:22px}
+.dwsf-modalBody{margin-top:6px;color:var(--dsw-alias-label-secondary);font-size:13px;line-height:20px}
+.dwsf-modalActions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 `
 
     /* ------------------------------------------------------------------ *
