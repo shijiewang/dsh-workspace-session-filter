@@ -522,9 +522,25 @@ const side = findAll(tree, (n) => n.props.className === 'dwsf-side')
 assert.strictEqual(side.length, 1, 'the digest list docks as a right-hand column')
 const page = findAll(tree, (n) => n.props.className === 'dwsf-page')[0]
 assert.ok(page, 'the page root renders')
-assert.strictEqual(page.children.length, 2, 'the page holds the scroll column plus the side column')
+assert.strictEqual(page.children.length, 3, 'the page holds the scroll column, the divider and the side column')
 assert.strictEqual(page.children[0].props.className, 'dwsf-scroll', 'the list keeps the scroll column')
-assert.strictEqual(page.children[1].props.className, 'dwsf-side', 'the digest column is a sibling of the scroll column')
+assert.strictEqual(page.children[1].props.className, 'dwsf-resizer', 'the divider sits between the columns')
+assert.strictEqual(page.children[1].props.role, 'separator', 'the divider is announced as a separator')
+assert.strictEqual(page.children[2].props.className, 'dwsf-side', 'the digest column is a sibling of the scroll column')
+
+const fullButton = findAll(tree, (n) => n.tag === 'button' && n.props['aria-label'] === '全屏')[0]
+assert.ok(fullButton, 'the column offers a full-screen toggle')
+fullButton.props.onClick()
+tree = renderInto(panelEntry[2])
+const fullPage = findAll(tree, (n) => n.props.className === 'dwsf-page')[0]
+assert.strictEqual(fullPage.props['data-full'], 'true', 'full screen marks the page')
+assert.strictEqual(fullPage.children.length, 2, 'full screen drops the divider')
+assert.strictEqual(fullPage.children[1].props.className, 'dwsf-side', 'the column takes the whole page')
+const restoreButton = findAll(tree, (n) => n.tag === 'button' && n.props['aria-label'] === '退出全屏')[0]
+assert.ok(restoreButton, 'full screen can be restored')
+restoreButton.props.onClick()
+tree = renderInto(panelEntry[2])
+assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-page')[0].props['data-full'], 'false', 'restoring brings the split back')
 assert.ok(textOf(side[0]).includes('导出的摘要文件'), 'the column is titled')
 assert.ok(textOf(side[0]).includes('读取中'), 'the column starts in its loading state')
 assert.ok(textOf(side[0]).includes('返回列表') === false, 'the list mode has no back link')

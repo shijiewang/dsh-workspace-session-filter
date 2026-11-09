@@ -75,6 +75,9 @@ window.__ModuleLoader__.load({
       'manage.digestsLoading': '读取中…',
       'manage.digestsRefresh': '刷新',
       'manage.digestsClose': '关闭摘要栏',
+      'manage.full': '全屏',
+      'manage.restore': '退出全屏',
+      'manage.resize': '拖动调整宽度',
       'manage.digestsBack': '返回列表',
       'manage.digestMeta': '{size} · {time}',
       'manage.missing': ' ({n} session directories were not found and were skipped)',
@@ -369,6 +372,20 @@ window.__ModuleLoader__.load({
      * The map lives in localStorage so it survives reloads; an unknown session
      * is baselined on first sight, which keeps a fresh install quiet.
      * ------------------------------------------------------------------ */
+    const SIDE_KEY = 'dsh-workspace-session-filter:side.v1'
+
+    /** Last dragged width of the digest column, or null for the CSS default. */
+    function readSideWidth() {
+      try {
+        const raw = window.localStorage.getItem(SIDE_KEY)
+        const value = Number(raw)
+        if (Number.isFinite(value) && value >= 240 && value <= 900) return Math.round(value)
+      } catch (error) {
+        return null
+      }
+      return null
+    }
+
     const SEEN_KEY = 'dsh-workspace-session-filter:seen.v1'
     const seenCache = { loaded: false, map: {}, timer: null }
 
@@ -829,12 +846,23 @@ window.__ModuleLoader__.load({
       const [understood, setUnderstood] = useState(false)
       const [digest, setDigest] = useState(null)
       const [digests, setDigests] = useState(null)
+      const [sideWidth, setSideWidth] = useState(() => readSideWidth())
+      const [sideFull, setSideFull] = useState(false)
       const [, setTick] = useState(0)
 
       useEffect(() => {
         const timer = setInterval(() => setTick((value) => value + 1), 60000)
         return () => clearInterval(timer)
       }, [])
+
+      useEffect(() => {
+        if (sideWidth === null) return
+        try {
+          window.localStorage.setItem(SIDE_KEY, String(sideWidth))
+        } catch (error) {
+          /* a blocked storage keeps the width for this mount only */
+        }
+      }, [sideWidth])
 
       /* Drop sessions that no longer exist on disk, so a trashed row leaves the
        * list even though the Host catalog still remembers it. */
@@ -1003,7 +1031,7 @@ window.__ModuleLoader__.load({
           )
         : null
 
-      return h('div', { className: 'dwsf-page' },
+      return h('div', { className: 'dwsf-page', 'data-full': sideFull ? 'true' : 'false' },
         h('div', { className: 'dwsf-scroll' },
           h('div', { className: 'dwsf-content' },
             h('header', { className: 'dwsf-heading' },
@@ -1084,15 +1112,28 @@ window.__ModuleLoader__.load({
             dialog
           )
         ),
+        digests && sideFull !== true
+          ? h('div', {
+              className: 'dwsf-resizer',
+              role: 'separator',
+              'aria-orientation': 'vertical',
+              'aria-label': t('manage.resize'),
+              title: t('manage.resize'),
+              onPointerDown: (event) => beginSideResize(event, sideWidth || 340, setSideWidth),
+            })
+          : null,
         digests
           ? h(DigestSidePanel, {
               t,
               digests,
               digest,
+              full: sideFull,
+              width: sideWidth,
+              onToggleFull: () => setSideFull((value) => !value),
               onOpen: openDigest,
-              onClear: () => setDigest(null),
+              onClear: () => { setSideFull(false); setDigest(null) },
               onRefresh: openDigests,
-              onClose: closeDigests,
+              onClose: () => { setSideFull(false); closeDigests() },
             })
           : null
       )
@@ -1174,6 +1215,57 @@ window.__ModuleLoader__.load({
 
     /* The Markdown digests already written to Downloads, docked as a column so the
      * session list stays visible beside them. */
+    function ExpandGlyph({ size = 15 }) {
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true',
+      },
+        h('path', { d: 'M6.2 2.6H2.6v3.6', stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+        h('path', { d: 'M2.6 2.6l3.9 3.9', stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round' }),
+        h('path', { d: 'M9.8 13.4h3.6V9.8', stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+        h('path', { d: 'M13.4 13.4l-3.9-3.9', stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round' })
+      )
+    }
+
+    function CollapseGlyph({ size = 15 }) {
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': 'true',
+      },
+        h('path', { d: 'M2.6 6.4h3.8V2.6', stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+        h('path', { d: 'M2.6 2.6l4 4', stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round' }),
+        h('path', { d: 'M13.4 9.6H9.6v3.8', stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+        h('path', { d: 'M13.4 13.4l-4-4', stroke: 'currentColor', 'stroke-width': 1.3, 'stroke-linecap': 'round' })
+      )
+    }
+
+    /**
+     * Starts a horizontal drag on the divider. The digest column is measured
+     * first so the first move does not jump when no explicit width was stored.
+     */
+    function beginSideResize(event, fallbackWidth, onChange) {
+      event.preventDefault()
+      const startX = event.clientX
+      const host = event.currentTarget.parentElement
+      const aside = host ? host.querySelector('.dwsf-side') : null
+      const startWidth = aside ? aside.getBoundingClientRect().width : fallbackWidth
+      const move = (moveEvent) => {
+        const widest = Math.max(320, Math.min(760, window.innerWidth - 360))
+        const next = Math.round(Math.max(240, Math.min(widest, startWidth + (startX - moveEvent.clientX))))
+        onChange(next)
+      }
+      const stop = () => {
+        document.removeEventListener('pointermove', move)
+        document.removeEventListener('pointerup', stop)
+        document.removeEventListener('pointercancel', stop)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+      document.addEventListener('pointermove', move)
+      document.addEventListener('pointerup', stop)
+      document.addEventListener('pointercancel', stop)
+    }
+
     function DigestSidePanel(props) {
       const t = props.t
       const state = props.digests || {}
@@ -1212,13 +1304,26 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dwsf-sideHint' }, t('manage.digestsHint')),
             list
           )
-      return h('aside', { className: 'dwsf-side', 'aria-label': t('manage.digestsTitle') },
+      const wide = typeof props.width === 'number' && props.width > 0
+      return h('aside', {
+        className: 'dwsf-side',
+        'aria-label': t('manage.digestsTitle'),
+        style: wide && props.full !== true ? { flexBasis: `${props.width}px` } : undefined,
+      },
         h('div', { className: 'dwsf-sideHead' },
           h('div', { className: 'dwsf-sideTitle' }, selected ? t('manage.previewTitle') : t('manage.digestsTitle')),
           h('span', { className: 'dwsf-spacer' }),
           selected
             ? h('button', { type: 'button', className: 'dwsf-link', onClick: props.onClear }, t('manage.digestsBack'))
             : null,
+          h('button', {
+            type: 'button',
+            className: 'dwsf-iconBtn',
+            'aria-pressed': props.full ? 'true' : 'false',
+            'aria-label': props.full ? t('manage.restore') : t('manage.full'),
+            title: props.full ? t('manage.restore') : t('manage.full'),
+            onClick: props.onToggleFull,
+          }, props.full ? h(CollapseGlyph, { size: 15 }) : h(ExpandGlyph, { size: 15 })),
           h('button', { type: 'button', className: 'dwsf-link', onClick: props.onRefresh }, t('manage.digestsRefresh')),
           h('button', {
             type: 'button', className: 'dwsf-link', onClick: props.onClose, 'aria-label': t('manage.digestsClose'), title: t('manage.digestsClose'),
@@ -1965,6 +2070,16 @@ window.__ModuleLoader__.load({
 .dwsf-side .dwsf-previewBody{margin-top:8px;padding-right:0;overflow:visible}
 .dwsf-side .dwsf-digestName{font-size:12px}
 .dwsf-digestRow[data-active="true"]{background:var(--dsw-alias-interactive-bg-active)}
+
+.dwsf-resizer{flex:0 0 7px;align-self:stretch;position:relative;background:transparent;cursor:col-resize;touch-action:none}
+.dwsf-resizer::after{content:'';position:absolute;top:0;bottom:0;left:3px;width:1px;background:var(--dsw-alias-border-l1);transition:background .15s ease,width .15s ease}
+.dwsf-resizer:hover::after,.dwsf-resizer:active::after{left:2px;width:2px;background:var(--dsw-alias-brand-primary)}
+.dwsf-iconBtn{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer}
+.dwsf-iconBtn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dwsf-iconBtn[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dwsf-page[data-full="true"] .dwsf-scroll{display:none}
+.dwsf-page[data-full="true"] .dwsf-side{flex:1 1 auto;width:auto;max-width:none;border-left:0}
+.dwsf-page[data-full="true"] .dwsf-side .dwsf-previewBody{max-width:960px;margin:0 auto;padding:8px clamp(20px,4vw,48px) 40px}
 
 `
 
