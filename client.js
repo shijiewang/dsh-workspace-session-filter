@@ -47,6 +47,14 @@ window.__ModuleLoader__.load({
       'status.updated': '状态更新于 {t}',
       'status.stale': '显示的是缓存状态',
       'status.openSite': '点击打开 status.deepseek.com',
+      'status.recent': '最近三次故障',
+      'status.recentNone': '近期没有故障记录',
+      'incident.resolved': '已恢复',
+      'incident.monitoring': '观察中',
+      'incident.identified': '已定位',
+      'incident.investigating': '排查中',
+      'incident.maintenance': '维护中',
+      'incident.unknown': '未知状态',
       'status.offline': '本地状态中继未运行，读不到 status.deepseek.com',
       'settings.nav': '在左侧导航显示',
       'settings.navHint': '打开后左侧导航多一个「会话筛选」入口，可打开完整筛选面板；关闭时侧边栏底部的筛选条照常可用。',
@@ -101,6 +109,14 @@ window.__ModuleLoader__.load({
       'status.updated': 'Updated {t}',
       'status.stale': 'Showing a cached reading',
       'status.openSite': 'Click to open status.deepseek.com',
+      'status.recent': 'Last three incidents',
+      'status.recentNone': 'No incidents on record',
+      'incident.resolved': 'Resolved',
+      'incident.monitoring': 'Monitoring',
+      'incident.identified': 'Identified',
+      'incident.investigating': 'Investigating',
+      'incident.maintenance': 'Maintenance',
+      'incident.unknown': 'Unknown',
       'status.offline': 'The local status relay is not running, so status.deepseek.com cannot be read',
       'settings.nav': 'Show in the left navigation',
       'settings.navHint': 'Adds a Session filter entry to the left navigation that opens the full panel. The filter bar at the foot of the sidebar keeps working either way.',
@@ -822,6 +838,52 @@ window.__ModuleLoader__.load({
       return `${pad(date.getHours())}:${pad(date.getMinutes())}`
     }
 
+    function dateOf(stamp) {
+      const date = new Date(stamp)
+      if (Number.isNaN(date.getTime())) return ''
+      const pad = (value) => (value < 10 ? `0${value}` : String(value))
+      return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+    }
+
+    function incidentTone(status) {
+      if (status === 'resolved' || status === 'postmortem') return 'ok'
+      if (status === 'monitoring' || status === 'verifying' || status === 'scheduled' || status === 'maintenance') return 'degraded'
+      if (status === 'investigating' || status === 'identified') return 'down'
+      return 'unknown'
+    }
+
+    function incidentLabel(status, t) {
+      return status === 'resolved' || status === 'postmortem' ? t('incident.resolved')
+        : status === 'monitoring' || status === 'verifying' ? t('incident.monitoring')
+          : status === 'identified' ? t('incident.identified')
+            : status === 'investigating' ? t('incident.investigating')
+              : status === 'scheduled' || status === 'maintenance' ? t('incident.maintenance')
+                : status ? status : t('incident.unknown')
+    }
+
+    /** The three newest feed entries, resolved or not, as a compact list. */
+    function recentIncidents(info, t) {
+      const entries = info && Array.isArray(info.incidents) ? info.incidents.slice(0, 3) : []
+      return h('div', { className: 'dwsf-statusRecent' },
+        h('div', { className: 'dwsf-statusRecentHead' }, t('status.recent')),
+        entries.length === 0
+          ? h('div', { className: 'dwsf-statusMeta' }, t('status.recentNone'))
+          : entries.map((entry, index) => {
+            const updated = Date.parse(entry.updated || 0)
+            return h('div', { key: index, className: 'dwsf-statusRecentRow' },
+              h('span', {
+                className: 'dwsf-statusRecentDot',
+                'data-state': incidentTone(entry.status),
+                'aria-hidden': 'true',
+              }),
+              h('span', { className: 'dwsf-statusRecentText' }, shorten(entry.title || entry.fullTitle || '', 52)),
+              h('span', { className: 'dwsf-statusRecentWhen' },
+                `${incidentLabel(entry.status, t)}${Number.isFinite(updated) && updated > 0 ? ` · ${dateOf(updated)}` : ''}`)
+            )
+          })
+      )
+    }
+
     function shorten(text, limit) {
       const value = String(text || '').trim()
       return value.length > limit ? `${value.slice(0, limit - 1)}…` : value
@@ -851,6 +913,7 @@ window.__ModuleLoader__.load({
               ? h('div', { className: 'dwsf-statusLine' }, shorten(info.detail, 140))
               : null,
             info ? null : h('div', { className: 'dwsf-statusLine' }, t('status.offline')),
+            info ? recentIncidents(info, t) : null,
             info && info.updated
               ? h('div', { className: 'dwsf-statusMeta' }, info.stale ? t('status.stale') : t('status.updated', { t: clockOf(info.updated) }))
               : null,
@@ -1190,11 +1253,20 @@ window.__ModuleLoader__.load({
 .dwsf-statusDot[data-state="ok"]{background:var(--dsw-alias-state-success-primary)}
 .dwsf-statusDot[data-state="degraded"]{background:var(--dsw-alias-state-warn-primary)}
 .dwsf-statusDot[data-state="down"]{background:var(--dsw-alias-state-error-primary)}
-.dwsf-statusCard{position:absolute;right:0;bottom:calc(100% + 8px);z-index:70;display:flex;flex-direction:column;gap:3px;width:max-content;max-width:min(286px,72vw);padding:8px 10px;border-radius:10px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-elevation-prominent);text-align:left}
+.dwsf-statusCard{position:absolute;right:0;bottom:calc(100% + 8px);z-index:70;display:flex;flex-direction:column;gap:3px;width:max-content;max-width:min(320px,78vw);padding:8px 10px;border-radius:10px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-elevation-prominent);text-align:left}
 .dwsf-statusHead{display:flex;align-items:center;gap:6px}
 .dwsf-statusName{font-size:12px;line-height:18px;font-weight:500;color:var(--dsw-alias-label-primary)}
 .dwsf-statusLine{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dwsf-statusMeta{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
+.dwsf-statusRecent{display:flex;flex-direction:column;gap:3px;margin-top:5px;padding-top:6px;border-top:.5px solid var(--dsw-alias-border-l2)}
+.dwsf-statusRecentHead{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
+.dwsf-statusRecentRow{display:flex;align-items:center;gap:5px}
+.dwsf-statusRecentDot{flex:0 0 auto;width:6px;height:6px;border-radius:999px;background:var(--dsw-alias-label-caption)}
+.dwsf-statusRecentDot[data-state="ok"]{background:var(--dsw-alias-state-success-primary)}
+.dwsf-statusRecentDot[data-state="degraded"]{background:var(--dsw-alias-state-warn-primary)}
+.dwsf-statusRecentDot[data-state="down"]{background:var(--dsw-alias-state-error-primary)}
+.dwsf-statusRecentText{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+.dwsf-statusRecentWhen{flex:0 0 auto;font-size:10px;line-height:16px;color:var(--dsw-alias-label-caption);font-variant-numeric:tabular-nums}
 .dwsf-footRail{flex:0 0 auto;display:flex;justify-content:center;width:100%}
 .dwsf-footRailButton{position:relative;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:0;border-radius:50%;background:0 0;color:var(--dsw-alias-label-primary);cursor:pointer}
 .dwsf-footRailButton:hover,.dwsf-footRailButton[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover)}
