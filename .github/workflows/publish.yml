@@ -1,18 +1,19 @@
 name: publish
 
-# Publishing uses npm trusted publishing (OIDC): no long-lived token lives in the
-# repository or in a secret. GitHub mints a short-lived identity token, npm verifies
-# it against the trusted publisher connection configured on the package, and the
-# registry accepts the upload.
+# Tag-driven publishing. The tag must match package.json: the check below fails
+# the run otherwise, so a stray tag never publishes the wrong version.
+#
+# Auth: an npm granular access token with "Bypass 2FA" and read/write is stored as
+# the NPM_TOKEN secret. (Trusted publishing over OIDC would also work once a
+# trusted publisher connection exists on npmjs.com for this repository.)
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
-  release:
-    types: [published]
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   publish:
@@ -23,12 +24,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          registry-url: https://registry.npmjs.org
 
-      - name: Use the newest npm (trusted publishing needs >= 11.5.1)
-        run: npm install -g npm@latest
+      - name: Tag must match package.json
+        run: |
+          want="v$(node -p "require('./package.json').version")"
+          test "${GITHUB_REF_NAME}" = "$want" || { echo "tag ${GITHUB_REF_NAME} != ${want}"; exit 1; }
 
       - name: Install nothing, test what ships
-        run: node --check client.js && node test/smoke.cjs
+        run: node --check client.js && node --check index.js && node test/smoke.cjs
 
       - name: Publish
-        run: npm publish --registry https://registry.npmjs.org/ --access public --provenance
+        run: npm publish --registry https://registry.npmjs.org/ --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

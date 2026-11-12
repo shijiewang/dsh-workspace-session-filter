@@ -39,6 +39,7 @@ window.__ModuleLoader__.load({
       'filter.awaitingShort': '待确认',
       'filter.unread': '未读',
       'filter.today': '今日',
+      'filter.favorite': '收藏',
       'status.service': 'DeepSeek 服务状态',
       'status.serviceOk': '服务正常',
       'status.serviceDegraded': '部分服务异常',
@@ -118,6 +119,8 @@ window.__ModuleLoader__.load({
       'session.new': '新会话',
       'session.untitled': '未命名会话',
       'session.open': '打开会话“{name}”',
+      'action.favorite': '收藏会话',
+      'action.unfavorite': '取消收藏',
       'status.running': '进行中',
       'status.waitingApproval': '等待审批',
       'status.planReview': '计划待审',
@@ -145,6 +148,7 @@ window.__ModuleLoader__.load({
       'filter.awaitingShort': 'Awaiting',
       'filter.unread': 'Unread',
       'filter.today': 'Today',
+      'filter.favorite': 'Favorites',
       'status.service': 'DeepSeek status',
       'status.serviceOk': 'Operational',
       'status.serviceDegraded': 'Partial degradation',
@@ -219,6 +223,8 @@ window.__ModuleLoader__.load({
       'session.new': 'New session',
       'session.untitled': 'Untitled session',
       'session.open': 'Open session “{name}”',
+      'action.favorite': 'Star session',
+      'action.unfavorite': 'Unstar session',
       'status.running': 'Running',
       'status.waitingApproval': 'Waiting for approval',
       'status.planReview': 'Plan to review',
@@ -290,6 +296,15 @@ window.__ModuleLoader__.load({
         h('path', { d: 'M4.2 4.4l.6 8.1h6.4l.6-8.1' }),
         h('path', { d: 'M6.7 6.7v3.6M9.3 6.7v3.6' })
       )
+    }
+
+    function StarGlyph() {
+      return h('svg', {
+        viewBox: '0 0 16 16', width: 13, height: 13, fill: 'currentColor',
+        'aria-hidden': 'true', focusable: 'false',
+      }, h('path', {
+        d: 'M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z',
+      }))
     }
 
     function CheckGlyph() {
@@ -396,6 +411,44 @@ window.__ModuleLoader__.load({
         return null
       }
       return null
+    }
+
+    /** Sessions the user starred, kept in this browser only. */
+    const FAV_KEY = 'dsh-workspace-session-filter:fav.v1'
+    const favoriteCache = { loaded: false, set: new Set() }
+
+    function loadFavorites() {
+      if (favoriteCache.loaded) return favoriteCache.set
+      favoriteCache.loaded = true
+      const storage = seenStorage()
+      if (!storage) return favoriteCache.set
+      try {
+        const raw = JSON.parse(storage.getItem(FAV_KEY) || '[]')
+        if (Array.isArray(raw)) favoriteCache.set = new Set(raw.filter((value) => typeof value === 'string'))
+      } catch (error) {
+        console.error('[workspace-session-filter] favorites are unreadable', error)
+      }
+      return favoriteCache.set
+    }
+
+    function isFavorite(sessionId) {
+      return loadFavorites().has(String(sessionId))
+    }
+
+    function setFavorite(sessionId) {
+      const set = loadFavorites()
+      const id = String(sessionId)
+      if (set.has(id)) set.delete(id)
+      else set.add(id)
+      const storage = seenStorage()
+      if (storage) {
+        try {
+          storage.setItem(FAV_KEY, JSON.stringify(Array.from(set)))
+        } catch (error) {
+          console.error('[workspace-session-filter] favorites cannot be saved', error)
+        }
+      }
+      return set.has(id)
     }
 
     const SEEN_KEY = 'dsh-workspace-session-filter:seen.v1'
@@ -604,6 +657,7 @@ window.__ModuleLoader__.load({
         }
         const row = buildRow(summary, status, runningSubagents(list, summary.id, statuses || new Map()), t, lastSeen)
         row.today = stamp >= startOfDay(now)
+        row.favorite = isFavorite(summary.id)
         rows.set(summary.id, row)
         base.push(row)
       }
@@ -612,13 +666,15 @@ window.__ModuleLoader__.load({
         || (statusFilter === 'running' ? row.running
           : statusFilter === 'awaiting' ? row.awaiting
             : statusFilter === 'today' ? row.today
-              : row.unread)
+              : statusFilter === 'favorite' ? row.favorite
+                : row.unread)
       const counts = {
         all: base.length,
         running: base.filter((row) => row.running).length,
         awaiting: base.filter((row) => row.awaiting).length,
         unread: base.filter((row) => row.unread).length,
         today: base.filter((row) => row.today).length,
+        favorite: base.filter((row) => row.favorite).length,
       }
 
       const groups = []
@@ -824,7 +880,18 @@ window.__ModuleLoader__.load({
               picked ? h(CheckGlyph, null) : null)
           : h(StatusDot, { state: row.dot }),
         h('span', { className: 'dwsf-title' }, row.title),
-        meta.length > 0 ? h('span', { className: 'dwsf-meta' }, meta) : null
+        meta.length > 0 ? h('span', { className: 'dwsf-meta' }, meta) : null,
+        props.onFavorite
+          ? h('button', {
+              type: 'button',
+              className: 'dwsf-fav',
+              'data-on': row.favorite ? 'true' : 'false',
+              'aria-pressed': row.favorite ? 'true' : 'false',
+              'aria-label': row.favorite ? t('action.unfavorite') : t('action.favorite'),
+              title: row.favorite ? t('action.unfavorite') : t('action.favorite'),
+              onClick: (event) => { event.stopPropagation(); props.onFavorite(row.id) },
+            }, h(StarGlyph, null))
+          : null
       )
     }
 
@@ -858,6 +925,7 @@ window.__ModuleLoader__.load({
           locked: managing === true && row.id === view.currentId,
           picked: Boolean(picked && picked.has(row.id)),
           onToggle,
+          onFavorite: props.onFavorite,
         })))
       )))
     }
@@ -892,6 +960,7 @@ window.__ModuleLoader__.load({
       const [sideWidth, setSideWidth] = useState(() => readSideWidth())
       const [sideFull, setSideFull] = useState(false)
       const [, setTick] = useState(0)
+      const onFavorite = (sessionId) => { setFavorite(sessionId); setTick((value) => value + 1) }
 
       useEffect(() => {
         const timer = setInterval(() => setTick((value) => value + 1), 60000)
@@ -1169,6 +1238,10 @@ window.__ModuleLoader__.load({
                 label: t('filter.today'), count: base.counts.today, active: statusFilter === 'today',
                 onClick: () => setStatusFilter(statusFilter === 'today' ? 'all' : 'today'),
               }),
+              h(FilterTab, {
+                label: t('filter.favorite'), count: base.counts.favorite, active: statusFilter === 'favorite',
+                onClick: () => setStatusFilter(statusFilter === 'favorite' ? 'all' : 'favorite'),
+              }),
               filtered
                 ? h('button', {
                     type: 'button',
@@ -1195,7 +1268,7 @@ window.__ModuleLoader__.load({
               ? h('div', { className: 'dwsf-empty' }, h('div', null, t('empty.loading')))
               : view.total === 0 && needle !== ''
                 ? h('div', { className: 'dwsf-empty' }, h('div', null, t('manage.empty')))
-                : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle }),
+                : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle, onFavorite }),
             dialog
           )
         ),
@@ -1553,7 +1626,7 @@ window.__ModuleLoader__.load({
         try {
           const response = await fetch(`http://127.0.0.1:${port}${path}`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: { 'content-type': 'application/json', 'x-dsh-relay': '1' },
             body: JSON.stringify(payload || {}),
             cache: 'no-store',
           })
@@ -2032,6 +2105,10 @@ window.__ModuleLoader__.load({
 .dwsf-caret{display:inline-flex;color:currentColor;opacity:.8;transition:transform .16s ease}
 .dwsf-caret[data-open="true"]{transform:rotate(180deg)}
 .dwsf-spacer{flex:1 1 auto}
+.dwsf-fav{flex:none;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;margin-left:2px;border:0;border-radius:var(--dsw-radius-sm);background:0 0;color:var(--dsw-alias-label-caption);opacity:0;cursor:pointer;transition:opacity .12s ease,color .12s ease}
+.dwsf-fav:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
+.dwsf-fav[data-on="true"]{opacity:1;color:var(--dsw-alias-state-warn-primary)}
+.dwsf-row:hover .dwsf-fav,.dwsf-row:focus-within .dwsf-fav{opacity:1}
 .dwsf-reset{height:28px;flex:none;padding:0 10px;border:0;border-radius:14px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:13px;line-height:20px;cursor:pointer}
 .dwsf-reset:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dwsf-reset:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:1px}

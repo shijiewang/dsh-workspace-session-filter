@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags-ignore: ['v*']
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Syntax
+        run: node --check client.js && node --check index.js
+
+      - name: Behaviour smoke test
+        run: node test/smoke.cjs
+
+      - name: Package contents
+        run: npm pack --dry-run

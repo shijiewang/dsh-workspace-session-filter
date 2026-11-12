@@ -764,82 +764,103 @@ function idList(body) {
   return value.filter((id) => typeof id === 'string' && id !== '').slice(0, 500)
 }
 
-function sendJson(response, statusCode, value) {
+function sendJson(response, statusCode, value, allowOrigin) {
   const body = JSON.stringify(value)
-  response.writeHead(statusCode, {
+  const headers = {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(body),
     'cache-control': 'no-store',
-    'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
-    'access-control-allow-headers': 'content-type',
-  })
+    'access-control-allow-headers': 'content-type, x-dsh-relay',
+  }
+  // Only a page served from this machine may script the relay: without the
+  // echoed origin a cross-site fetch has no permission to read the answer.
+  if (typeof allowOrigin === 'string') headers['access-control-allow-origin'] = allowOrigin
+  response.writeHead(statusCode, headers)
   response.end(body)
+}
+
+/** True for the app's own pages: loopback origins, file:// and Electron's null origin. */
+function isLocalOrigin(origin) {
+  if (origin === 'null' || origin === 'file://') return true
+  if (typeof origin !== 'string') return false
+  return /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(origin)
 }
 
 function createRelay() {
   return createServer((request, response) => {
     const url = request.url || '/'
+    const origin = request.headers.origin
+    const allowOrigin = origin === undefined ? '*' : (isLocalOrigin(origin) ? origin : null)
+    const reply = (statusCode, value) => sendJson(response, statusCode, value, allowOrigin)
+    if (allowOrigin === null) {
+      sendJson(response, 403, { ok: false, error: 'origin not allowed' }, undefined)
+      return
+    }
     if (request.method === 'OPTIONS') {
-      sendJson(response, 204, {})
+      reply(204, {})
+      return
+    }
+    if (request.method === 'POST' && request.headers['x-dsh-relay'] !== '1') {
+      reply(403, { ok: false, error: 'relay header required' })
       return
     }
     if (request.method === 'POST' && url.startsWith('/export')) {
       readBody(request).then((body) => {
         const ids = idList(body)
         if (ids.length === 0) {
-          sendJson(response, 400, { ok: false, error: 'ids required' })
+          reply(400, { ok: false, error: 'ids required' })
           return
         }
         try {
-          sendJson(response, 200, exportDigests(ids, body.titles, typeof body.note === 'string' ? body.note : ''))
+          reply(200, exportDigests(ids, body.titles, typeof body.note === 'string' ? body.note : ''))
         } catch (error) {
-          sendJson(response, 200, { ok: false, error: error && error.message ? error.message : String(error) })
+          reply(200, { ok: false, error: error && error.message ? error.message : String(error) })
         }
-      }, (error) => sendJson(response, 400, { ok: false, error: error.message }))
+      }, (error) => reply(400, { ok: false, error: error.message }))
       return
     }
     if (request.method === 'POST' && url.startsWith('/trash')) {
       readBody(request).then((body) => {
         const ids = idList(body)
         if (ids.length === 0) {
-          sendJson(response, 400, { ok: false, error: 'ids required' })
+          reply(400, { ok: false, error: 'ids required' })
           return
         }
         try {
-          sendJson(response, 200, trashSessions(ids))
+          reply(200, trashSessions(ids))
         } catch (error) {
-          sendJson(response, 200, { ok: false, error: error && error.message ? error.message : String(error) })
+          reply(200, { ok: false, error: error && error.message ? error.message : String(error) })
         }
-      }, (error) => sendJson(response, 400, { ok: false, error: error.message }))
+      }, (error) => reply(400, { ok: false, error: error.message }))
       return
     }
     if (request.method === 'POST' && url.startsWith('/purge')) {
       readBody(request).then((body) => {
         const ids = idList(body)
         if (ids.length === 0) {
-          sendJson(response, 400, { ok: false, error: 'ids required' })
+          reply(400, { ok: false, error: 'ids required' })
           return
         }
         try {
-          sendJson(response, 200, purgeSessions(ids))
+          reply(200, purgeSessions(ids))
         } catch (error) {
-          sendJson(response, 200, { ok: false, error: error && error.message ? error.message : String(error) })
+          reply(200, { ok: false, error: error && error.message ? error.message : String(error) })
         }
-      }, (error) => sendJson(response, 400, { ok: false, error: error.message }))
+      }, (error) => reply(400, { ok: false, error: error.message }))
       return
     }
     if (request.method !== 'GET') {
-      sendJson(response, 405, { ok: false, error: 'method not allowed' })
+      reply(405, { ok: false, error: 'method not allowed' })
       return
     }
     if (url.startsWith('/sessions')) {
       const ids = sessionDirs().map((entry) => entry.id)
-      sendJson(response, 200, { ok: true, count: ids.length, ids })
+      reply(200, { ok: true, count: ids.length, ids })
       return
     }
     if (url.startsWith('/digests')) {
-      sendJson(response, 200, { ok: true, items: listDigests() })
+      reply(200, { ok: true, items: listDigests() })
       return
     }
     if (url.startsWith('/digest')) {
@@ -847,17 +868,17 @@ function createRelay() {
       const params = new URLSearchParams(query === -1 ? '' : url.slice(query + 1))
       const found = readDigest(params.get('file'))
       if (!found) {
-        sendJson(response, 404, { ok: false, error: 'digest not found' })
+        reply(404, { ok: false, error: 'digest not found' })
         return
       }
-      sendJson(response, 200, found)
+      reply(200, found)
       return
     }
     if (url.startsWith('/status')) {
       const force = /[?&]refresh=1/.test(url)
       readStatus(force).then(
-        (payload) => sendJson(response, 200, payload),
-        (error) => sendJson(response, 200, {
+        (payload) => reply(200, payload),
+        (error) => reply(200, {
           ok: false,
           state: 'unknown',
           tone: 'idle',
@@ -870,7 +891,7 @@ function createRelay() {
       return
     }
     if (url.startsWith('/health')) {
-      sendJson(response, 200, {
+      reply(200, {
         ok: true,
         feed: FEED_URL,
         sessions: sessionDirs().length,
@@ -878,7 +899,7 @@ function createRelay() {
       })
       return
     }
-    sendJson(response, 404, { ok: false, error: 'not found' })
+    reply(404, { ok: false, error: 'not found' })
   })
 }
 
