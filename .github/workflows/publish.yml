@@ -36,6 +36,16 @@ jobs:
       - name: Install nothing, test what ships
         run: node --check client.js && node --check index.js && node test/smoke.cjs
 
+      - name: Who is this token
+        if: env.NPM_TOKEN != ''
+        env:
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+        run: |
+          set -x
+          npm whoami --registry https://registry.npmjs.org/ || true
+          curl -s -o /dev/null -w 'whoami status %{http_code}\n' -H "Authorization: Bearer $NODE_AUTH_TOKEN" https://registry.npmjs.org/-/whoami || true
+          curl -s -o /dev/null -w 'package status %{http_code}\n' -H "Authorization: Bearer $NODE_AUTH_TOKEN" https://registry.npmjs.org/dsh-workspace-session-filter || true
+
       - name: Publish
         if: env.NPM_TOKEN != ''
         run: npm publish --registry https://registry.npmjs.org/ --access public
