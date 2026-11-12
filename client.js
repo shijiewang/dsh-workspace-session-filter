@@ -2201,13 +2201,13 @@ window.__ModuleLoader__.load({
 .dwsf-emptyHint{color:var(--dsw-alias-label-caption);font-size:13px;line-height:20px}
 [data-slot="sidebar.footer.action"]{display:flex !important;flex-wrap:wrap;width:100%;min-width:0;align-items:flex-start;column-gap:0;row-gap:0}
 .dwsf-foot{flex:1 0 100%;display:flex;align-items:center;min-width:0;max-width:100%;margin:8px 0 2px;padding:0 2px}
-.dwsf-footChips{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:3px 1px;min-width:0;flex:1 1 auto}
-.dwsf-footChip{flex:0 1 auto;min-width:0;max-width:100%;height:26px;display:inline-flex;align-items:center;justify-content:center;gap:2px;padding:0 5px;border:0;border-radius:999px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;line-height:16px;white-space:nowrap;cursor:pointer;overflow:hidden}
+.dwsf-footChips{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px 2px;min-width:0;flex:1 1 auto}
+.dwsf-footChip{flex:0 1 auto;min-width:0;max-width:100%;height:28px;display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:0 7px;border:0;border-radius:999px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:18px;white-space:nowrap;cursor:pointer;overflow:hidden}
 .dwsf-footChip:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dwsf-footChip[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dwsf-footChip:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}
 .dwsf-footChipLabel{flex:0 0 auto;white-space:nowrap}
-.dwsf-footChipCount{flex:none;align-self:flex-start;margin-top:3px;color:var(--dsw-alias-label-caption);font-size:9px;line-height:10px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.dwsf-footChipCount{flex:none;color:var(--dsw-alias-label-caption);font-size:10px;line-height:14px;font-variant-numeric:tabular-nums}
 .dwsf-footChip[data-active="true"] .dwsf-footChipCount{color:var(--dsw-alias-label-secondary)}
 .dwsf-status{position:relative;flex:0 0 auto;display:flex;align-items:center;padding-left:4px}
 .dwsf-statusButton{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:999px;background:0 0;cursor:pointer}
