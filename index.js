@@ -16,7 +16,7 @@
 import { createServer } from 'node:http'
 import * as zlib from 'node:zlib'
 import {
-  existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync,
+  existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { homedir } from 'node:os'
@@ -703,6 +703,32 @@ function trashSessions(ids) {
   return { ok: failed.length === 0, stamp, moved, failed, trash: join(sessionsRoot(), '.trash', stamp) }
 }
 
+/**
+ * Deletes session directories outright — no trash copy. The Client asks for it
+ * behind a second confirmation, and writes the Markdown digest first, so the
+ * information survives even though the directory does not.
+ */
+function purgeSessions(ids) {
+  const known = new Map(sessionDirs().map((entry) => [entry.id, entry]))
+  const purged = []
+  const failed = []
+  for (const rawId of ids) {
+    const id = String(rawId)
+    const info = matchSession(known, id)
+    if (!info) {
+      failed.push({ id, reason: 'not found' })
+      continue
+    }
+    try {
+      rmSync(info.dir, { recursive: true, force: true })
+      purged.push(info.id)
+    } catch (error) {
+      failed.push({ id, reason: error && error.message ? error.message : String(error) })
+    }
+  }
+  return { ok: failed.length === 0, purged, failed }
+}
+
 function readBody(request, limit = 1_000_000) {
   return new Promise((resolve, reject) => {
     let size = 0
@@ -782,6 +808,21 @@ function createRelay() {
         }
         try {
           sendJson(response, 200, trashSessions(ids))
+        } catch (error) {
+          sendJson(response, 200, { ok: false, error: error && error.message ? error.message : String(error) })
+        }
+      }, (error) => sendJson(response, 400, { ok: false, error: error.message }))
+      return
+    }
+    if (request.method === 'POST' && url.startsWith('/purge')) {
+      readBody(request).then((body) => {
+        const ids = idList(body)
+        if (ids.length === 0) {
+          sendJson(response, 400, { ok: false, error: 'ids required' })
+          return
+        }
+        try {
+          sendJson(response, 200, purgeSessions(ids))
         } catch (error) {
           sendJson(response, 200, { ok: false, error: error && error.message ? error.message : String(error) })
         }

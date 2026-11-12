@@ -39,6 +39,7 @@ window.__ModuleLoader__.load({
       'filter.awaitingShort': '待确认',
       'filter.unread': '未读',
       'filter.today': '今日',
+      'filter.favorite': '收藏',
       'status.service': 'DeepSeek 服务状态',
       'status.serviceOk': '服务正常',
       'status.serviceDegraded': '部分服务异常',
@@ -56,6 +57,7 @@ window.__ModuleLoader__.load({
       'manage.clear': '清空',
       'manage.export': '导出 Markdown',
       'manage.trash': '移入回收站',
+      'manage.purge': '永久删除',
       'manage.empty': '没有匹配的会话',
       'manage.confirmTitle': '移入回收站？',
       'manage.confirmBody': '会先写出一份 Markdown 摘要（{n} 个会话，保存到当前数据目录的 session-digests/），再把会话目录移到同一数据目录的 sessions/.trash/。需要恢复时把目录移回原位即可。',
@@ -67,6 +69,13 @@ window.__ModuleLoader__.load({
       'manage.failed': '执行失败：{error}',
       'manage.offline': '本地中继未运行，重启应用后再试',
       'manage.locked': '当前打开的会话不能移入回收站',
+      'manage.purgeTitle': '永久删除这些会话？',
+      'manage.purgeBody': '会先写出一份 Markdown 摘要（{n} 个会话），随后直接删除磁盘上的会话目录，**不进入回收站、无法恢复**。',
+      'manage.purgeOk': '永久删除',
+      'manage.purged': '已永久删除 {n} 个会话',
+      'manage.purgeAsk': '我明白这会永久删除，无法恢复',
+      'action.favorite': '收藏会话',
+      'action.unfavorite': '取消收藏',
       'manage.hint': '勾选后可导出摘要或移入回收站',
       'manage.digests': '摘要文件',
       'manage.digestsTitle': '导出的摘要文件',
@@ -139,6 +148,7 @@ window.__ModuleLoader__.load({
       'filter.awaitingShort': 'Awaiting',
       'filter.unread': 'Unread',
       'filter.today': 'Today',
+      'filter.favorite': 'Starred',
       'status.service': 'DeepSeek status',
       'status.serviceOk': 'Operational',
       'status.serviceDegraded': 'Partial degradation',
@@ -156,6 +166,7 @@ window.__ModuleLoader__.load({
       'manage.clear': 'Clear',
       'manage.export': 'Export Markdown',
       'manage.trash': 'Move to trash',
+      'manage.purge': 'Delete permanently',
       'manage.empty': 'No session matches',
       'manage.confirmTitle': 'Move to the trash?',
       'manage.confirmBody': 'A Markdown digest of the {n} selected sessions is written to session-digests/ in the current data home first, then their directories move to sessions/.trash/ in the same home. Move a directory back to restore it.',
@@ -167,6 +178,13 @@ window.__ModuleLoader__.load({
       'manage.failed': 'Failed: {error}',
       'manage.offline': 'The local relay is not running; restart the app and retry',
       'manage.locked': 'The open session cannot be moved to the trash',
+      'manage.purgeTitle': 'Delete these sessions for good?',
+      'manage.purgeBody': 'A Markdown digest of the {n} selected sessions is written first, then their directories are deleted from disk — **no trash, no undo**.',
+      'manage.purgeOk': 'Delete permanently',
+      'manage.purged': 'Deleted {n} sessions permanently',
+      'manage.purgeAsk': 'I understand this is permanent and deletes files',
+      'action.favorite': 'Star this session',
+      'action.unfavorite': 'Remove the star',
       'manage.hint': 'Tick sessions to export a digest or move them to the trash',
       'manage.digests': 'Digests',
       'manage.digestsTitle': 'Exported digests',
@@ -278,6 +296,16 @@ window.__ModuleLoader__.load({
         h('path', { d: 'M4.2 4.4l.6 8.1h6.4l.6-8.1' }),
         h('path', { d: 'M6.7 6.7v3.6M9.3 6.7v3.6' })
       )
+    }
+
+    function StarGlyph(props) {
+      const size = props && props.size ? props.size : 13
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 16 16',
+        fill: props && props.filled ? 'currentColor' : 'none',
+        stroke: 'currentColor', strokeWidth: 1.2, strokeLinejoin: 'round',
+        'aria-hidden': 'true', focusable: 'false',
+      }, h('path', { d: 'M8 1.9l1.9 3.95 4.35.62-3.15 3.06.75 4.33L8 11.92 4.15 13.86l.75-4.33L1.75 6.47 6.1 5.85z' }))
     }
 
     function CheckGlyph() {
@@ -395,6 +423,81 @@ window.__ModuleLoader__.load({
       } catch (error) {
         return null
       }
+    }
+
+    /* ------------------------------------------------------------------ *
+     * Stars
+     *
+     * There is no favorite flag in the shipped session model, so the star
+     * list is local to this window (localStorage) exactly like the last-seen
+     * stamps. Ids are the host's session ids, which stay stable across loads.
+     * ------------------------------------------------------------------ */
+    const FAV_KEY = 'dsh-workspace-session-filter:fav.v1'
+    const favoriteCache = { loaded: false, set: new Set() }
+    const favoriteListeners = new Set()
+
+    function favoriteStorage() {
+      try {
+        return typeof localStorage === 'undefined' ? null : localStorage
+      } catch (error) {
+        return null
+      }
+    }
+
+    function loadFavorites() {
+      if (favoriteCache.loaded) return favoriteCache.set
+      favoriteCache.loaded = true
+      const storage = favoriteStorage()
+      if (!storage) return favoriteCache.set
+      try {
+        const parsed = JSON.parse(storage.getItem(FAV_KEY) || '[]')
+        if (Array.isArray(parsed)) {
+          for (const entry of parsed) {
+            if (typeof entry === 'string' && entry !== '') favoriteCache.set.add(entry)
+          }
+        }
+      } catch (error) {
+        /* a corrupt value simply means no stars */
+      }
+      return favoriteCache.set
+    }
+
+    function isFavorite(sessionId) {
+      return loadFavorites().has(sessionId)
+    }
+
+    function setFavorite(sessionId, on) {
+      const set = loadFavorites()
+      if (on === set.has(sessionId)) return
+      if (on) set.add(sessionId)
+      else set.delete(sessionId)
+      const storage = favoriteStorage()
+      if (storage) {
+        try {
+          storage.setItem(FAV_KEY, JSON.stringify(Array.from(set)))
+        } catch (error) {
+          /* over quota: the in-memory set still works for this run */
+        }
+      }
+      for (const listener of Array.from(favoriteListeners)) {
+        try {
+          listener()
+        } catch (error) {
+          /* a broken subscriber must not break the others */
+        }
+      }
+    }
+
+    function subscribeFavorites(listener) {
+      favoriteListeners.add(listener)
+      return () => favoriteListeners.delete(listener)
+    }
+
+    /** Re-renders the caller whenever a star changes anywhere in the app. */
+    function useFavoriteTick() {
+      const [tick, setTick] = useState(0)
+      useEffect(() => subscribeFavorites(() => setTick((value) => value + 1)), [])
+      return tick
     }
 
     /* ---------------------------- navigation toggle --------------------------- *
@@ -592,6 +695,7 @@ window.__ModuleLoader__.load({
         }
         const row = buildRow(summary, status, runningSubagents(list, summary.id, statuses || new Map()), t, lastSeen)
         row.today = stamp >= startOfDay(now)
+        row.favorite = isFavorite(summary.id)
         rows.set(summary.id, row)
         base.push(row)
       }
@@ -600,13 +704,15 @@ window.__ModuleLoader__.load({
         || (statusFilter === 'running' ? row.running
           : statusFilter === 'awaiting' ? row.awaiting
             : statusFilter === 'today' ? row.today
-              : row.unread)
+              : statusFilter === 'favorite' ? row.favorite
+                : row.unread)
       const counts = {
         all: base.length,
         running: base.filter((row) => row.running).length,
         awaiting: base.filter((row) => row.awaiting).length,
         unread: base.filter((row) => row.unread).length,
         today: base.filter((row) => row.today).length,
+        favorite: base.filter((row) => row.favorite).length,
       }
 
       const groups = []
@@ -766,6 +872,7 @@ window.__ModuleLoader__.load({
       const managing = props.managing === true
       const locked = managing && props.locked === true
       const picked = props.picked === true
+      const favorite = row.favorite === true
       const meta = []
       if (row.label !== '') {
         meta.push(h('span', { key: 'state', className: 'dwsf-state', 'data-state': row.dot }, row.label))
@@ -776,27 +883,36 @@ window.__ModuleLoader__.load({
           key: 'time', className: 'dwsf-time', title: t('time.ago', { t: time }),
         }, time))
       }
+      const activate = () => {
+        if (managing) {
+          if (!locked) props.onToggle(row.id)
+          return
+        }
+        props.onOpen(row.id)
+      }
 
-      return h('button', {
-        type: 'button',
+      return h('div', {
         className: 'dwsf-row',
+        role: 'button',
+        tabIndex: 0,
         'data-state': row.dot,
         'data-blank': row.blank ? 'true' : 'false',
         'data-current': row.id === props.currentId ? 'true' : 'false',
         'data-managing': managing ? 'true' : 'false',
         'data-picked': picked ? 'true' : 'false',
         'data-locked': locked ? 'true' : 'false',
+        'data-favorite': favorite ? 'true' : 'false',
         title: locked ? t('manage.locked') : row.title,
         'aria-pressed': managing ? (picked ? 'true' : 'false') : undefined,
         'aria-label': managing
-          ? `${picked ? '✓ ' : ''}${row.title}`
+          ? `${picked ? '\u2713 ' : ''}${row.title}`
           : t('session.open', { name: row.title }),
-        onClick: () => {
-          if (managing) {
-            if (!locked) props.onToggle(row.id)
-            return
-          }
-          props.onOpen(row.id)
+        onClick: activate,
+        onKeyDown: (event) => {
+          if (event.target !== event.currentTarget) return
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          activate()
         },
       },
         managing
@@ -804,13 +920,27 @@ window.__ModuleLoader__.load({
               picked ? h(CheckGlyph, null) : null)
           : h(StatusDot, { state: row.dot }),
         h('span', { className: 'dwsf-title' }, row.title),
-        meta.length > 0 ? h('span', { className: 'dwsf-meta' }, meta) : null
+        meta.length > 0 ? h('span', { className: 'dwsf-meta' }, meta) : null,
+        managing
+          ? null
+          : h('button', {
+              type: 'button',
+              className: 'dwsf-fav',
+              'data-on': favorite ? 'true' : 'false',
+              'aria-pressed': favorite ? 'true' : 'false',
+              'aria-label': favorite ? t('action.unfavorite') : t('action.favorite'),
+              title: favorite ? t('action.unfavorite') : t('action.favorite'),
+              onClick: (event) => {
+                event.stopPropagation()
+                props.onFavorite(row.id, !favorite)
+              },
+            }, h(StarGlyph, { filled: favorite }))
       )
     }
 
     /** Workspace-grouped session rows, shared by the panel and the sidebar popover. */
     function Groups(props) {
-      const { view, t, now, onOpen, managing, picked, onToggle } = props
+      const { view, t, now, onOpen, managing, picked, onToggle, onFavorite } = props
       if (view.groups.length === 0) {
         return h('div', { className: 'dwsf-empty' },
           h('div', { className: 'dwsf-emptyTitle' }, t('empty.title')),
@@ -838,6 +968,7 @@ window.__ModuleLoader__.load({
           locked: managing === true && row.id === view.currentId,
           picked: Boolean(picked && picked.has(row.id)),
           onToggle,
+          onFavorite,
         })))
       )))
     }
@@ -865,6 +996,7 @@ window.__ModuleLoader__.load({
       const [picked, setPicked] = useState(() => new Set())
       const [busy, setBusy] = useState(false)
       const [notice, setNotice] = useState('')
+      useFavoriteTick()
       const [confirming, setConfirming] = useState(false)
       const [understood, setUnderstood] = useState(false)
       const [digest, setDigest] = useState(null)
@@ -974,7 +1106,7 @@ window.__ModuleLoader__.load({
       const runTrash = async () => {
         if (picked.size === 0 || busy) return
         setBusy(true)
-        setConfirming(false)
+        setConfirming(null)
         setUnderstood(false)
         let exported = null
         try {
@@ -991,6 +1123,36 @@ window.__ModuleLoader__.load({
           }
           for (const id of (result.moved || [])) trashedIds.add(id)
           setNotice(t('manage.trashed', { n: String((result.moved || []).length) }))
+          if (exported) setDigest({ name: exported.name || String(exported.file || '').split('/').pop() })
+          setPicked(new Set())
+          loadDiskIds().then(() => setTick((value) => value + 1), () => {})
+        } catch (error) {
+          setNotice(t('manage.failed', { error: (error && error.message) || String(error) }))
+        } finally {
+          setBusy(false)
+        }
+      }
+      const runPurge = async () => {
+        if (picked.size === 0 || busy) return
+        setBusy(true)
+        setConfirming(null)
+        setUnderstood(false)
+        let exported = null
+        try {
+          exported = await exportNow()
+        } catch (error) {
+          /* The digest is a courtesy: a failed export must not block the delete. */
+          console.error('[workspace-session-filter] digest export failed', error)
+        }
+        try {
+          const targets = [...picked].filter((id) => id !== base.currentId)
+          const result = await relayCall('/purge', { ids: targets })
+          if (!result || result.ok === false) {
+            throw new Error((result && result.error) || 'purge failed')
+          }
+          const purged = Array.isArray(result.purged) ? result.purged : targets
+          for (const id of purged) trashedIds.add(id)
+          setNotice(t('manage.purged', { n: String(purged.length) }))
           if (exported) setDigest({ name: exported.name || String(exported.file || '').split('/').pop() })
           setPicked(new Set())
           loadDiskIds().then(() => setTick((value) => value + 1), () => {})
@@ -1024,34 +1186,45 @@ window.__ModuleLoader__.load({
             }, t('manage.export')),
             h('button', {
               type: 'button', className: 'dwsf-btn dwsf-btnDanger', disabled: picked.size === 0 || busy,
-              onClick: () => setConfirming(true),
-            }, t('manage.trash'))
+              onClick: () => setConfirming('trash'),
+            }, t('manage.trash')),
+            h('button', {
+              type: 'button', className: 'dwsf-btn dwsf-btnDanger', disabled: picked.size === 0 || busy,
+              onClick: () => setConfirming('purge'),
+            }, t('manage.purge'))
           )
         : null
 
+      const purgeMode = confirming === 'purge'
       const dialog = confirming
         ? h('div', { className: 'dwsf-modalBackdrop', role: 'presentation' },
-            h('div', { className: 'dwsf-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('manage.confirmTitle') },
-              h('div', { className: 'dwsf-modalTitle' }, t('manage.confirmTitle')),
-              h('div', { className: 'dwsf-modalBody' }, t('manage.confirmBody', { n: String(picked.size) })),
+            h('div', {
+              className: 'dwsf-modal', role: 'dialog', 'aria-modal': 'true',
+              'aria-label': purgeMode ? t('manage.purgeTitle') : t('manage.confirmTitle'),
+            },
+              h('div', { className: 'dwsf-modalTitle' }, purgeMode ? t('manage.purgeTitle') : t('manage.confirmTitle')),
+              h('div', { className: 'dwsf-modalBody' },
+                purgeMode
+                  ? t('manage.purgeBody', { n: String(picked.size) })
+                  : t('manage.confirmBody', { n: String(picked.size) })),
               h('label', { className: 'dwsf-confirmAsk' },
                 h('input', {
                   type: 'checkbox',
                   checked: understood,
                   onChange: (event) => setUnderstood(event.target.checked),
                 }),
-                h('span', null, t('manage.confirmCheck'))
+                h('span', null, purgeMode ? t('manage.purgeAsk') : t('manage.confirmCheck'))
               ),
               h('div', { className: 'dwsf-modalActions' },
                 h('button', {
                   type: 'button', className: 'dwsf-btn dwsf-btnGhost',
-                  onClick: () => { setConfirming(false); setUnderstood(false) },
+                  onClick: () => { setConfirming(null); setUnderstood(false) },
                 }, t('manage.confirmCancel')),
                 h('button', {
                   type: 'button', className: 'dwsf-btn dwsf-btnDanger',
                   disabled: !understood,
-                  onClick: runTrash,
-                }, t('manage.confirmOk'))
+                  onClick: purgeMode ? runPurge : runTrash,
+                }, purgeMode ? t('manage.purgeOk') : t('manage.confirmOk'))
               )
             )
           )
@@ -1108,6 +1281,10 @@ window.__ModuleLoader__.load({
                 label: t('filter.today'), count: base.counts.today, active: statusFilter === 'today',
                 onClick: () => setStatusFilter(statusFilter === 'today' ? 'all' : 'today'),
               }),
+              h(FilterTab, {
+                label: t('filter.favorite'), count: base.counts.favorite, active: statusFilter === 'favorite',
+                onClick: () => setStatusFilter(statusFilter === 'favorite' ? 'all' : 'favorite'),
+              }),
               filtered
                 ? h('button', {
                     type: 'button',
@@ -1134,7 +1311,7 @@ window.__ModuleLoader__.load({
               ? h('div', { className: 'dwsf-empty' }, h('div', null, t('empty.loading')))
               : view.total === 0 && needle !== ''
                 ? h('div', { className: 'dwsf-empty' }, h('div', null, t('manage.empty')))
-                : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle }),
+                : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle, onFavorite: setFavorite }),
             dialog
           )
         ),
@@ -1696,6 +1873,7 @@ window.__ModuleLoader__.load({
     function FooterBar(props) {
       const t = props.t
       const wide = props.wide !== false
+      useFavoriteTick()
       const [mode, setMode] = useState('running')
       const [open, setOpen] = useState(false)
       const [anchor, setAnchor] = useState(undefined)
@@ -1791,7 +1969,8 @@ window.__ModuleLoader__.load({
         chip('running', t('filter.running'), view.counts.running),
         chip('awaiting', t('filter.awaitingShort'), view.counts.awaiting),
         chip('unread', t('filter.unread'), view.counts.unread),
-        chip('today', t('filter.today'), view.counts.today)
+        chip('today', t('filter.today'), view.counts.today),
+        chip('favorite', t('filter.favorite'), view.counts.favorite)
       )
 
       const popover = open && anchor !== undefined
@@ -1810,7 +1989,7 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dwsf-popBody' },
               view.loading
                 ? h('div', { className: 'dwsf-empty' }, h('div', null, t('empty.loading')))
-                : h(Groups, { view, t, now, onOpen })
+                : h(Groups, { view, t, now, onOpen, onFavorite: setFavorite })
             ),
             h('div', { className: 'dwsf-popFoot' },
               h('span', { className: 'dwsf-popFootLabel' }, t('settings.nav')),
@@ -1989,6 +2168,12 @@ window.__ModuleLoader__.load({
 .dwsf-rows{display:flex;flex-direction:column;gap:2px}
 .dwsf-row{display:flex;align-items:center;gap:8px;width:100%;height:36px;padding:0 10px;border:0;border-radius:var(--dsw-radius-md);background:0 0;color:inherit;font:inherit;font-size:14px;line-height:20px;text-align:left;cursor:pointer}
 .dwsf-row:hover,.dwsf-row[data-current="true"]{background:var(--dsw-alias-interactive-bg-hover)}
+.dwsf-fav{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:2px;padding:0;border:0;border-radius:var(--dsw-radius-sm,6px);background:0 0;color:var(--dsw-alias-label-caption);opacity:0;cursor:pointer;transition:opacity .12s ease,color .12s ease}
+.dwsf-row:hover .dwsf-fav,.dwsf-row:focus-within .dwsf-fav{opacity:1}
+.dwsf-fav[data-on="true"]{opacity:1;color:var(--dsw-alias-state-warn-primary)}
+.dwsf-fav:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
+.dwsf-fav[data-on="true"]:hover{color:var(--dsw-alias-state-warn-primary)}
+.dwsf-fav:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-1px}
 .dwsf-row:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}
 .dwsf-dot{position:relative;display:inline-block;flex:none;color:var(--dsw-alias-state-idle-primary)}
 .dwsf-dot::after{content:"";position:absolute;inset:20%;border-radius:50%;background:currentColor}
@@ -2016,13 +2201,13 @@ window.__ModuleLoader__.load({
 .dwsf-emptyHint{color:var(--dsw-alias-label-caption);font-size:13px;line-height:20px}
 [data-slot="sidebar.footer.action"]{display:flex !important;flex-wrap:wrap;width:100%;min-width:0;align-items:flex-start;column-gap:0;row-gap:0}
 .dwsf-foot{flex:1 0 100%;display:flex;align-items:center;min-width:0;max-width:100%;margin:8px 0 2px;padding:0 2px}
-.dwsf-footChips{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:4px 2px;min-width:0;flex:1 1 auto}
-.dwsf-footChip{flex:0 1 auto;min-width:0;max-width:100%;height:28px;display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:0 7px;border:0;border-radius:999px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:18px;white-space:nowrap;cursor:pointer;overflow:hidden}
+.dwsf-footChips{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:3px 1px;min-width:0;flex:1 1 auto}
+.dwsf-footChip{flex:0 1 auto;min-width:0;max-width:100%;height:26px;display:inline-flex;align-items:center;justify-content:center;gap:2px;padding:0 5px;border:0;border-radius:999px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;line-height:16px;white-space:nowrap;cursor:pointer;overflow:hidden}
 .dwsf-footChip:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dwsf-footChip[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dwsf-footChip:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}
 .dwsf-footChipLabel{flex:0 0 auto;white-space:nowrap}
-.dwsf-footChipCount{flex:none;color:var(--dsw-alias-label-caption);font-size:10px;line-height:14px;font-variant-numeric:tabular-nums}
+.dwsf-footChipCount{flex:none;align-self:flex-start;margin-top:3px;color:var(--dsw-alias-label-caption);font-size:9px;line-height:10px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .dwsf-footChip[data-active="true"] .dwsf-footChipCount{color:var(--dsw-alias-label-secondary)}
 .dwsf-status{position:relative;flex:0 0 auto;display:flex;align-items:center;padding-left:4px}
 .dwsf-statusButton{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:999px;background:0 0;cursor:pointer}
@@ -2092,6 +2277,7 @@ window.__ModuleLoader__.load({
 .dwsf-btnGhost{background:0 0;color:var(--dsw-alias-label-secondary)}
 .dwsf-btnGhost:hover,.dwsf-btnGhost[data-active="true"]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .dwsf-btnDanger{background:0 0;color:var(--dsw-alias-state-error-primary)}
+.dwsf-btnDanger{border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,transparent)}
 .dwsf-btnDanger:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .dwsf-headingMeta{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
 .dwsf-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--dsw-alias-border-l1);border-radius:5px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary-inverted)}

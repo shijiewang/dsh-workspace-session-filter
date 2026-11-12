@@ -105,6 +105,8 @@ function findAll(root, predicate) {
   return hits
 }
 const buttonsWithClass = (root, cls) => findAll(root, (n) => n.tag === 'button' && n.props.className === cls)
+const rowsWithClass = (root, cls) => findAll(root, (n) => (n.tag === 'button' || n.tag === 'div')
+  && n.props.className === cls && (n.tag === 'div' ? n.props.role === 'button' : true))
 const buttonByText = (root, text) => buttonsWithClass(root, 'dwsf-filter').concat(buttonsWithClass(root, 'dwsf-reset'))
   .find((node) => textOf(node).trim().startsWith(text))
 
@@ -255,8 +257,8 @@ function renderInto(component, extraProps) {
 
 let tree = renderInto(panelEntry[2])
 let chips = buttonsWithClass(tree, 'dwsf-filter')
-assert.deepStrictEqual(chips.map((n) => textOf(n).trim()), ['全部5', '运行中1', '等待确认1', '未读2', todayChip, '更多'])
-let rows = buttonsWithClass(tree, 'dwsf-row')
+assert.deepStrictEqual(chips.map((n) => textOf(n).trim()), ['全部5', '运行中1', '等待确认1', '未读2', todayChip, '收藏0', '更多'])
+let rows = rowsWithClass(tree, 'dwsf-row')
 assert.strictEqual(rows.length, 5, 'archived / subagent / non-current blank excluded')
 let groups = findAll(tree, (n) => n.props.className === 'dwsf-group')
 assert.strictEqual(groups.length, 3, 'Alpha + Beta + ungrouped')
@@ -268,24 +270,45 @@ assert.ok(textOf(tree).includes('等待审批'), 'awaiting label rendered')
 
 buttonByText(tree, '运行中').props.onClick()
 tree = renderInto(panelEntry[2])
-assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').length, 1)
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').length, 1)
 assert.strictEqual(buttonByText(tree, '运行中').props['aria-pressed'], 'true')
 assert.ok(buttonByText(tree, '清除筛选'), 'reset appears while filtered')
-assert.ok(textOf(buttonsWithClass(tree, 'dwsf-row')[0]).includes('Alpha API'))
+assert.ok(textOf(rowsWithClass(tree, 'dwsf-row')[0]).includes('Alpha API'))
 
 buttonByText(tree, '全部').props.onClick()
 tree = renderInto(panelEntry[2])
-assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').length, 5)
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').length, 5)
 assert.strictEqual(buttonByText(tree, '清除筛选'), undefined, 'reset hidden when unfiltered')
 
 buttonByText(tree, '等待确认').props.onClick()
 tree = renderInto(panelEntry[2])
-assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').length, 1)
-assert.ok(textOf(buttonsWithClass(tree, 'dwsf-row')[0]).includes('Beta docs'))
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').length, 1)
+assert.ok(textOf(rowsWithClass(tree, 'dwsf-row')[0]).includes('Beta docs'))
 
 buttonByText(tree, '清除筛选').props.onClick()
 tree = renderInto(panelEntry[2])
-assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').length, 5)
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').length, 5)
+
+/* ------------------------------- stars -------------------------------- */
+const stars = findAll(tree, (n) => n.props.className === 'dwsf-fav')
+assert.strictEqual(stars.length, 5, 'every row carries a star')
+const favTab = () => buttonsWithClass(tree, 'dwsf-filter').find((n) => textOf(n).trim().startsWith('收藏'))
+assert.strictEqual(textOf(favTab()).trim(), '收藏0', 'nothing is starred yet')
+stars[0].props.onClick({ stopPropagation() {} })
+tree = renderInto(panelEntry[2])
+assert.strictEqual(textOf(favTab()).trim(), '收藏1', 'starring updates the counter')
+favTab().props.onClick()
+tree = renderInto(panelEntry[2])
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').length, 1, 'the starred dimension keeps one row')
+assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-fav')[0].props['data-on'], 'true', 'the star stays lit')
+const starredRow = rowsWithClass(tree, 'dwsf-row')[0]
+findAll(starredRow, (n) => n.props.className === 'dwsf-fav')[0].props.onClick({ stopPropagation() {} })
+tree = renderInto(panelEntry[2])
+assert.strictEqual(textOf(favTab()).trim(), '收藏0', 'unstarring clears the counter')
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').length, 0, 'the starred dimension empties out')
+buttonByText(tree, '全部').props.onClick()
+tree = renderInto(panelEntry[2])
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').length, 5, 'back to every row')
 
 const moreButton = () => buttonsWithClass(tree, 'dwsf-filter').find((n) => n.props['aria-haspopup'] === 'menu')
 moreButton().props.onClick()
@@ -298,7 +321,7 @@ assert.strictEqual(items[0].props['aria-checked'], 'true')
 items[2].props.onClick()
 tree = renderInto(panelEntry[2])
 assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-menu').length, 0, 'menu closes after pick')
-assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').length, 4, '10-day-old session dropped by 最近三天')
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').length, 4, '10-day-old session dropped by 最近三天')
 assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-group').length, 2)
 assert.strictEqual(textOf(moreButton()).trim(), '最近三天')
 
@@ -307,9 +330,9 @@ tree = renderInto(panelEntry[2])
 items = findAll(tree, (n) => n.tag === 'button' && n.props.role === 'menuitemradio')
 items[0].props.onClick()
 tree = renderInto(panelEntry[2])
-assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').length, 5)
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').length, 5)
 
-buttonsWithClass(tree, 'dwsf-row')[0].props.onClick()
+rowsWithClass(tree, 'dwsf-row')[0].props.onClick()
 assert.strictEqual(registered.opened.length, 1, 'row click opens a session')
 assert.strictEqual(typeof registered.opened[0], 'string')
 
@@ -380,7 +403,7 @@ const renderFoot = (wide) => renderElement(
   createElement(footEntry[2], Object.assign({}, props, { wide })), 'foot')
 let foot = renderFoot(true)
 let footChips = buttonsWithClass(foot, 'dwsf-footChip')
-assert.deepStrictEqual(footChips.map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读2', todayChip], 'footer shows running + awaiting + unread + today')
+assert.deepStrictEqual(footChips.map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读2', todayChip, '收藏'], 'footer shows running + awaiting + unread + today + starred')
 const statusButtons = findAll(foot, (n) => n.tag === 'button' && n.props.className === 'dwsf-statusButton')
 assert.strictEqual(statusButtons.length, 1, 'footer carries the service status dot')
 assert.strictEqual(statusButtons[0].props['data-state'], 'unknown', 'no relay in the sandbox means the grey state')
@@ -402,7 +425,7 @@ assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length
 buttonsWithClass(foot, 'dwsf-footChip')[0].props.onClick()
 foot = renderFoot(true)
 const before = registered.opened.length
-let footRows = buttonsWithClass(foot, 'dwsf-row')
+let footRows = rowsWithClass(foot, 'dwsf-row')
 assert.strictEqual(footRows.length, 1, 'running filter applied inside the footer list')
 assert.ok(textOf(footRows[0]).includes('Alpha API'))
 assert.ok(textOf(foot).includes('会话筛选'))
@@ -413,7 +436,7 @@ assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length
 
 buttonsWithClass(foot, 'dwsf-footChip')[1].props.onClick()
 foot = renderFoot(true)
-footRows = buttonsWithClass(foot, 'dwsf-row')
+footRows = rowsWithClass(foot, 'dwsf-row')
 assert.strictEqual(footRows.length, 1)
 assert.ok(textOf(footRows[0]).includes('Beta docs'), 'awaiting filter inside the footer list')
 assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length, 1)
@@ -424,7 +447,7 @@ assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length
 
 buttonsWithClass(foot, 'dwsf-footChip')[2].props.onClick()
 foot = renderFoot(true)
-footRows = buttonsWithClass(foot, 'dwsf-row')
+footRows = rowsWithClass(foot, 'dwsf-row')
 assert.strictEqual(footRows.length, 2, 'unread filter covers completion flags and newer activity')
 const unreadTitles = footRows.map((node) => textOf(node))
 assert.ok(unreadTitles.some((text) => text.includes('Stray session')), 'completion-unread session listed')
@@ -437,7 +460,7 @@ assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length
 
 buttonsWithClass(foot, 'dwsf-footChip')[3].props.onClick()
 foot = renderFoot(true)
-footRows = buttonsWithClass(foot, 'dwsf-row')
+footRows = rowsWithClass(foot, 'dwsf-row')
 assert.strictEqual(footRows.length, todayCount, 'today filter keeps only sessions updated since local midnight')
 buttonsWithClass(foot, 'dwsf-footChip')[3].props.onClick()
 foot = renderFoot(true)
@@ -452,9 +475,9 @@ assert.strictEqual(buttonsWithClass(rail, 'dwsf-footRailButton').length, 1, 'col
 assert.strictEqual(buttonsWithClass(rail, 'dwsf-footChip').length, 0, 'rail hides the text chips')
 buttonsWithClass(rail, 'dwsf-footRailButton')[0].props.onClick()
 rail = renderFoot(false)
-assert.deepStrictEqual(buttonsWithClass(rail, 'dwsf-footChip').map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读2', todayChip])
-assert.strictEqual(buttonsWithClass(rail, 'dwsf-row').length, 2, 'rail popover keeps the active unread filter')
-assert.ok(buttonsWithClass(rail, 'dwsf-row').every((node) => textOf(node).includes('未读')))
+assert.deepStrictEqual(buttonsWithClass(rail, 'dwsf-footChip').map((n) => textOf(n).trim()), ['运行中1', '待确认1', '未读2', todayChip, '收藏'])
+assert.strictEqual(rowsWithClass(rail, 'dwsf-row').length, 2, 'rail popover keeps the active unread filter')
+assert.ok(rowsWithClass(rail, 'dwsf-row').every((node) => textOf(node).includes('未读')))
 
 
 statusMap.clear()
@@ -463,7 +486,7 @@ tree = renderInto(panelEntry[2])
 buttonByText(tree, '等待确认').props.onClick()
 tree = renderInto(panelEntry[2])
 assert.ok(textOf(tree).includes('没有符合条件的会话'))
-assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').length, 0)
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').length, 0)
 
 statusMap.clear()
 hookStore.clear()
@@ -484,19 +507,19 @@ const exportBtn = findButton(tree, '导出 Markdown')
 assert.ok(exportBtn && exportBtn.props.disabled === true, 'export disabled while nothing is picked')
 
 const openedBefore = registered.opened.length
-let manageRows = buttonsWithClass(tree, 'dwsf-row')
+let manageRows = rowsWithClass(tree, 'dwsf-row')
 assert.ok(manageRows.length > 0, 'rows rendered in manage mode')
 const firstPickable = manageRows.filter((node) => node.props['data-locked'] !== 'true')[0]
 assert.ok(firstPickable, 'at least one session is pickable')
 firstPickable.props.onClick()
 tree = renderInto(panelEntry[2])
-manageRows = buttonsWithClass(tree, 'dwsf-row')
+manageRows = rowsWithClass(tree, 'dwsf-row')
 const lockedRows = manageRows.filter((node) => node.props['data-locked'] === 'true')
 assert.strictEqual(lockedRows.length, 1, 'the open session is locked in manage mode')
 lockedRows[0].props.onClick()
 tree = renderInto(panelEntry[2])
 assert.ok(textOf(tree).includes('已选 1 个'), 'locked row cannot be picked')
-const pickedRow = buttonsWithClass(tree, 'dwsf-row').filter((node) => node.props['aria-pressed'] === 'true')[0]
+const pickedRow = rowsWithClass(tree, 'dwsf-row').filter((node) => node.props['aria-pressed'] === 'true')[0]
 assert.ok(pickedRow, 'row toggles instead of opening')
 assert.strictEqual(registered.opened.length, openedBefore, 'clicking a row in manage mode does not open the session')
 assert.ok(textOf(tree).includes('已选 1 个'), 'picked counter increments')
@@ -505,13 +528,13 @@ assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-check' && n.
 
 findButton(tree, '全选').props.onClick()
 tree = renderInto(panelEntry[2])
-assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').filter((node) => node.props['data-locked'] !== 'true').every((node) => node.props['aria-pressed'] === 'true'), true, 'select all picks every visible row')
-assert.strictEqual(buttonsWithClass(tree, 'dwsf-row').filter((node) => node.props['data-locked'] === 'true').every((node) => node.props['aria-pressed'] === 'false'), true, 'select all leaves the open session alone')
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').filter((node) => node.props['data-locked'] !== 'true').every((node) => node.props['aria-pressed'] === 'true'), true, 'select all picks every visible row')
+assert.strictEqual(rowsWithClass(tree, 'dwsf-row').filter((node) => node.props['data-locked'] === 'true').every((node) => node.props['aria-pressed'] === 'false'), true, 'select all leaves the open session alone')
 findButton(tree, '清空').props.onClick()
 tree = renderInto(panelEntry[2])
 assert.ok(textOf(tree).includes('已选 0 个'), 'clear resets the selection')
 
-const pickable = buttonsWithClass(tree, 'dwsf-row').filter((node) => node.props['data-locked'] !== 'true')[0]
+const pickable = rowsWithClass(tree, 'dwsf-row').filter((node) => node.props['data-locked'] !== 'true')[0]
 pickable.props.onClick()
 tree = renderInto(panelEntry[2])
 assert.ok(textOf(tree).includes('已选 1 个'), 'one row picked again')
@@ -567,6 +590,25 @@ assert.strictEqual(findButton(tree, '确认移入').props.disabled, false, 'ackn
 findButton(tree, '取消').props.onClick()
 tree = renderInto(panelEntry[2])
 assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-modal').length, 0, 'cancel closes the dialog')
+
+findButton(tree, '永久删除').props.onClick()
+tree = renderInto(panelEntry[2])
+const purgeModal = findAll(tree, (n) => n.props.className === 'dwsf-modal')
+assert.strictEqual(purgeModal.length, 1, 'permanent delete asks for confirmation too')
+assert.ok(textOf(purgeModal[0]).includes('永久删除这些会话？'), 'the purge dialog says what it does')
+assert.ok(textOf(purgeModal[0]).includes('无法恢复'), 'the purge dialog spells out the risk')
+const purgeConfirm = () => findButton(
+  findAll(tree, (n) => n.props.className === 'dwsf-modal')[0], '永久删除')
+assert.strictEqual(purgeConfirm().props.disabled, true, 'purge stays disabled until acknowledged')
+const purgeBox = findAll(tree, (n) => n.tag === 'input' && n.props && n.props.type === 'checkbox')[0]
+purgeBox.props.onChange({ target: { checked: true } })
+tree = renderInto(panelEntry[2])
+assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-modal').length, 1, 'the dialog is still open')
+assert.strictEqual(purgeConfirm().props.disabled, false, 'acknowledging arms the purge button')
+assert.strictEqual(findButton(tree, '取消').props.disabled, undefined, 'cancel is always available')
+findButton(tree, '取消').props.onClick()
+tree = renderInto(panelEntry[2])
+assert.strictEqual(findAll(tree, (n) => n.props.className === 'dwsf-modal').length, 0, 'cancelling the purge closes it')
 
 findButton(tree, '完成').props.onClick()
 tree = renderInto(panelEntry[2])
