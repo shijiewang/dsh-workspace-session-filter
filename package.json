@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace-session-filter",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Workspace session filter panel with status and recency filters.",
   "type": "module",
   "exports": {

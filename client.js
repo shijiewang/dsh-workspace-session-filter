@@ -39,7 +39,6 @@ window.__ModuleLoader__.load({
       'filter.awaitingShort': '待确认',
       'filter.unread': '未读',
       'filter.today': '今日',
-      'filter.favorite': '收藏',
       'status.service': 'DeepSeek 服务状态',
       'status.serviceOk': '服务正常',
       'status.serviceDegraded': '部分服务异常',
@@ -74,8 +73,6 @@ window.__ModuleLoader__.load({
       'manage.purgeOk': '永久删除',
       'manage.purged': '已永久删除 {n} 个会话',
       'manage.purgeAsk': '我明白这会永久删除，无法恢复',
-      'action.favorite': '收藏会话',
-      'action.unfavorite': '取消收藏',
       'manage.hint': '勾选后可导出摘要或移入回收站',
       'manage.digests': '摘要文件',
       'manage.digestsTitle': '导出的摘要文件',
@@ -148,7 +145,6 @@ window.__ModuleLoader__.load({
       'filter.awaitingShort': 'Awaiting',
       'filter.unread': 'Unread',
       'filter.today': 'Today',
-      'filter.favorite': 'Starred',
       'status.service': 'DeepSeek status',
       'status.serviceOk': 'Operational',
       'status.serviceDegraded': 'Partial degradation',
@@ -183,8 +179,6 @@ window.__ModuleLoader__.load({
       'manage.purgeOk': 'Delete permanently',
       'manage.purged': 'Deleted {n} sessions permanently',
       'manage.purgeAsk': 'I understand this is permanent and deletes files',
-      'action.favorite': 'Star this session',
-      'action.unfavorite': 'Remove the star',
       'manage.hint': 'Tick sessions to export a digest or move them to the trash',
       'manage.digests': 'Digests',
       'manage.digestsTitle': 'Exported digests',
@@ -296,16 +290,6 @@ window.__ModuleLoader__.load({
         h('path', { d: 'M4.2 4.4l.6 8.1h6.4l.6-8.1' }),
         h('path', { d: 'M6.7 6.7v3.6M9.3 6.7v3.6' })
       )
-    }
-
-    function StarGlyph(props) {
-      const size = props && props.size ? props.size : 13
-      return h('svg', {
-        width: size, height: size, viewBox: '0 0 16 16',
-        fill: props && props.filled ? 'currentColor' : 'none',
-        stroke: 'currentColor', strokeWidth: 1.2, strokeLinejoin: 'round',
-        'aria-hidden': 'true', focusable: 'false',
-      }, h('path', { d: 'M8 1.9l1.9 3.95 4.35.62-3.15 3.06.75 4.33L8 11.92 4.15 13.86l.75-4.33L1.75 6.47 6.1 5.85z' }))
     }
 
     function CheckGlyph() {
@@ -423,81 +407,6 @@ window.__ModuleLoader__.load({
       } catch (error) {
         return null
       }
-    }
-
-    /* ------------------------------------------------------------------ *
-     * Stars
-     *
-     * There is no favorite flag in the shipped session model, so the star
-     * list is local to this window (localStorage) exactly like the last-seen
-     * stamps. Ids are the host's session ids, which stay stable across loads.
-     * ------------------------------------------------------------------ */
-    const FAV_KEY = 'dsh-workspace-session-filter:fav.v1'
-    const favoriteCache = { loaded: false, set: new Set() }
-    const favoriteListeners = new Set()
-
-    function favoriteStorage() {
-      try {
-        return typeof localStorage === 'undefined' ? null : localStorage
-      } catch (error) {
-        return null
-      }
-    }
-
-    function loadFavorites() {
-      if (favoriteCache.loaded) return favoriteCache.set
-      favoriteCache.loaded = true
-      const storage = favoriteStorage()
-      if (!storage) return favoriteCache.set
-      try {
-        const parsed = JSON.parse(storage.getItem(FAV_KEY) || '[]')
-        if (Array.isArray(parsed)) {
-          for (const entry of parsed) {
-            if (typeof entry === 'string' && entry !== '') favoriteCache.set.add(entry)
-          }
-        }
-      } catch (error) {
-        /* a corrupt value simply means no stars */
-      }
-      return favoriteCache.set
-    }
-
-    function isFavorite(sessionId) {
-      return loadFavorites().has(sessionId)
-    }
-
-    function setFavorite(sessionId, on) {
-      const set = loadFavorites()
-      if (on === set.has(sessionId)) return
-      if (on) set.add(sessionId)
-      else set.delete(sessionId)
-      const storage = favoriteStorage()
-      if (storage) {
-        try {
-          storage.setItem(FAV_KEY, JSON.stringify(Array.from(set)))
-        } catch (error) {
-          /* over quota: the in-memory set still works for this run */
-        }
-      }
-      for (const listener of Array.from(favoriteListeners)) {
-        try {
-          listener()
-        } catch (error) {
-          /* a broken subscriber must not break the others */
-        }
-      }
-    }
-
-    function subscribeFavorites(listener) {
-      favoriteListeners.add(listener)
-      return () => favoriteListeners.delete(listener)
-    }
-
-    /** Re-renders the caller whenever a star changes anywhere in the app. */
-    function useFavoriteTick() {
-      const [tick, setTick] = useState(0)
-      useEffect(() => subscribeFavorites(() => setTick((value) => value + 1)), [])
-      return tick
     }
 
     /* ---------------------------- navigation toggle --------------------------- *
@@ -695,7 +604,6 @@ window.__ModuleLoader__.load({
         }
         const row = buildRow(summary, status, runningSubagents(list, summary.id, statuses || new Map()), t, lastSeen)
         row.today = stamp >= startOfDay(now)
-        row.favorite = isFavorite(summary.id)
         rows.set(summary.id, row)
         base.push(row)
       }
@@ -704,15 +612,13 @@ window.__ModuleLoader__.load({
         || (statusFilter === 'running' ? row.running
           : statusFilter === 'awaiting' ? row.awaiting
             : statusFilter === 'today' ? row.today
-              : statusFilter === 'favorite' ? row.favorite
-                : row.unread)
+              : row.unread)
       const counts = {
         all: base.length,
         running: base.filter((row) => row.running).length,
         awaiting: base.filter((row) => row.awaiting).length,
         unread: base.filter((row) => row.unread).length,
         today: base.filter((row) => row.today).length,
-        favorite: base.filter((row) => row.favorite).length,
       }
 
       const groups = []
@@ -872,7 +778,6 @@ window.__ModuleLoader__.load({
       const managing = props.managing === true
       const locked = managing && props.locked === true
       const picked = props.picked === true
-      const favorite = row.favorite === true
       const meta = []
       if (row.label !== '') {
         meta.push(h('span', { key: 'state', className: 'dwsf-state', 'data-state': row.dot }, row.label))
@@ -901,7 +806,6 @@ window.__ModuleLoader__.load({
         'data-managing': managing ? 'true' : 'false',
         'data-picked': picked ? 'true' : 'false',
         'data-locked': locked ? 'true' : 'false',
-        'data-favorite': favorite ? 'true' : 'false',
         title: locked ? t('manage.locked') : row.title,
         'aria-pressed': managing ? (picked ? 'true' : 'false') : undefined,
         'aria-label': managing
@@ -920,27 +824,13 @@ window.__ModuleLoader__.load({
               picked ? h(CheckGlyph, null) : null)
           : h(StatusDot, { state: row.dot }),
         h('span', { className: 'dwsf-title' }, row.title),
-        meta.length > 0 ? h('span', { className: 'dwsf-meta' }, meta) : null,
-        managing
-          ? null
-          : h('button', {
-              type: 'button',
-              className: 'dwsf-fav',
-              'data-on': favorite ? 'true' : 'false',
-              'aria-pressed': favorite ? 'true' : 'false',
-              'aria-label': favorite ? t('action.unfavorite') : t('action.favorite'),
-              title: favorite ? t('action.unfavorite') : t('action.favorite'),
-              onClick: (event) => {
-                event.stopPropagation()
-                props.onFavorite(row.id, !favorite)
-              },
-            }, h(StarGlyph, { filled: favorite }))
+        meta.length > 0 ? h('span', { className: 'dwsf-meta' }, meta) : null
       )
     }
 
     /** Workspace-grouped session rows, shared by the panel and the sidebar popover. */
     function Groups(props) {
-      const { view, t, now, onOpen, managing, picked, onToggle, onFavorite } = props
+      const { view, t, now, onOpen, managing, picked, onToggle } = props
       if (view.groups.length === 0) {
         return h('div', { className: 'dwsf-empty' },
           h('div', { className: 'dwsf-emptyTitle' }, t('empty.title')),
@@ -968,7 +858,6 @@ window.__ModuleLoader__.load({
           locked: managing === true && row.id === view.currentId,
           picked: Boolean(picked && picked.has(row.id)),
           onToggle,
-          onFavorite,
         })))
       )))
     }
@@ -996,7 +885,6 @@ window.__ModuleLoader__.load({
       const [picked, setPicked] = useState(() => new Set())
       const [busy, setBusy] = useState(false)
       const [notice, setNotice] = useState('')
-      useFavoriteTick()
       const [confirming, setConfirming] = useState(false)
       const [understood, setUnderstood] = useState(false)
       const [digest, setDigest] = useState(null)
@@ -1281,10 +1169,6 @@ window.__ModuleLoader__.load({
                 label: t('filter.today'), count: base.counts.today, active: statusFilter === 'today',
                 onClick: () => setStatusFilter(statusFilter === 'today' ? 'all' : 'today'),
               }),
-              h(FilterTab, {
-                label: t('filter.favorite'), count: base.counts.favorite, active: statusFilter === 'favorite',
-                onClick: () => setStatusFilter(statusFilter === 'favorite' ? 'all' : 'favorite'),
-              }),
               filtered
                 ? h('button', {
                     type: 'button',
@@ -1311,7 +1195,7 @@ window.__ModuleLoader__.load({
               ? h('div', { className: 'dwsf-empty' }, h('div', null, t('empty.loading')))
               : view.total === 0 && needle !== ''
                 ? h('div', { className: 'dwsf-empty' }, h('div', null, t('manage.empty')))
-                : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle, onFavorite: setFavorite }),
+                : h(Groups, { view, t, now, onOpen, managing, picked, onToggle: toggle }),
             dialog
           )
         ),
@@ -1873,7 +1757,6 @@ window.__ModuleLoader__.load({
     function FooterBar(props) {
       const t = props.t
       const wide = props.wide !== false
-      useFavoriteTick()
       const [mode, setMode] = useState('running')
       const [open, setOpen] = useState(false)
       const [anchor, setAnchor] = useState(undefined)
@@ -1969,8 +1852,7 @@ window.__ModuleLoader__.load({
         chip('running', t('filter.running'), view.counts.running),
         chip('awaiting', t('filter.awaitingShort'), view.counts.awaiting),
         chip('unread', t('filter.unread'), view.counts.unread),
-        chip('today', t('filter.today'), view.counts.today),
-        chip('favorite', t('filter.favorite'), view.counts.favorite)
+        chip('today', t('filter.today'), view.counts.today)
       )
 
       const popover = open && anchor !== undefined
@@ -1989,7 +1871,7 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dwsf-popBody' },
               view.loading
                 ? h('div', { className: 'dwsf-empty' }, h('div', null, t('empty.loading')))
-                : h(Groups, { view, t, now, onOpen, onFavorite: setFavorite })
+                : h(Groups, { view, t, now, onOpen })
             ),
             h('div', { className: 'dwsf-popFoot' },
               h('span', { className: 'dwsf-popFootLabel' }, t('settings.nav')),
@@ -2168,12 +2050,6 @@ window.__ModuleLoader__.load({
 .dwsf-rows{display:flex;flex-direction:column;gap:2px}
 .dwsf-row{display:flex;align-items:center;gap:8px;width:100%;height:36px;padding:0 10px;border:0;border-radius:var(--dsw-radius-md);background:0 0;color:inherit;font:inherit;font-size:14px;line-height:20px;text-align:left;cursor:pointer}
 .dwsf-row:hover,.dwsf-row[data-current="true"]{background:var(--dsw-alias-interactive-bg-hover)}
-.dwsf-fav{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:2px;padding:0;border:0;border-radius:var(--dsw-radius-sm,6px);background:0 0;color:var(--dsw-alias-label-caption);opacity:0;cursor:pointer;transition:opacity .12s ease,color .12s ease}
-.dwsf-row:hover .dwsf-fav,.dwsf-row:focus-within .dwsf-fav{opacity:1}
-.dwsf-fav[data-on="true"]{opacity:1;color:var(--dsw-alias-state-warn-primary)}
-.dwsf-fav:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
-.dwsf-fav[data-on="true"]:hover{color:var(--dsw-alias-state-warn-primary)}
-.dwsf-fav:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-1px}
 .dwsf-row:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}
 .dwsf-dot{position:relative;display:inline-block;flex:none;color:var(--dsw-alias-state-idle-primary)}
 .dwsf-dot::after{content:"";position:absolute;inset:20%;border-radius:50%;background:currentColor}
