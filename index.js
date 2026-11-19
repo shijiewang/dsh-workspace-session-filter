@@ -27,11 +27,20 @@ const FEED_HOST = 'status.deepseek.com'
 const FEED_PATH = '/feed.atom'
 const FEED_URL = `https://${FEED_HOST}${FEED_PATH}`
 const PORTS = [47100, 47101, 47102, 47103, 47104, 47105]
-const CACHE_MS = 60_000
+/**
+ * How long a parsed reading is served without waiting for a new fetch. The
+ * upstream feed itself caches for 60s, so a reading younger than this is still
+ * "current" as far as status.deepseek.com is concerned.
+ */
+const CACHE_MS = 200_000
+/** Background keep-fresh cadence, so a reading is normally never older than this. */
+const POLL_MS = 60_000
+/** Consecutive failed fetches tolerated before the dot admits it does not know. */
+const MAX_FAILS = 3
 const TIMEOUT_MS = 8_000
 const USER_AGENT = 'dsh-workspace-session-filter (+https://github.com/shijiewang/dsh-workspace-session-filter)'
 
-const cache = { at: 0, payload: null, etag: null }
+const cache = { at: 0, payload: null, etag: null, lastOk: 0, fails: 0 }
 let inflight = null
 
 /** Resolves `{ status, headers, body }` for any status the server chose to send. */
@@ -232,9 +241,27 @@ function summarize(entries, fetchedAt) {
   }
 }
 
-async function readStatus(force = false) {
-  const now = Date.now()
-  if (!force && cache.payload && now - cache.at < CACHE_MS) return cache.payload
+/**
+ * What the UI sees before the very first feed read finishes. Answering at once
+ * keeps the status dot out of a multi-second network wait on a cold start; the
+ * reading replaces this as soon as it lands.
+ */
+function pendingStatus() {
+  return {
+    ok: true,
+    pending: true,
+    fetchedAt: 0,
+    state: 'unknown',
+    tone: 'idle',
+    headline: 'Checking the status feed',
+    detail: '',
+    updated: 0,
+    entry: null,
+    incidents: [],
+  }
+}
+
+function refresh(now) {
   if (inflight) return inflight
   inflight = (async () => {
     try {
@@ -242,7 +269,9 @@ async function readStatus(force = false) {
       if (answer.notModified && cache.payload) {
         /* Nothing changed upstream: refresh the stamp, keep the parsed reading. */
         cache.at = now
-        cache.payload = { ...cache.payload, fetchedAt: now, cached: true }
+        cache.lastOk = now
+        cache.fails = 0
+        cache.payload = { ...cache.payload, fetchedAt: now, cached: true, lastSuccess: now, fails: 0 }
         return cache.payload
       }
       cache.etag = answer.etag || null
@@ -260,30 +289,79 @@ async function readStatus(force = false) {
         incidents: entries.slice(0, 5),
       }
       cache.at = now
-      cache.payload = payload
-      return payload
+      cache.lastOk = now
+      cache.fails = 0
+      cache.payload = { ...payload, lastSuccess: now, fails: 0 }
+      return cache.payload
     } catch (error) {
-      const payload = {
+      const detail = error && error.message ? error.message : String(error)
+      cache.fails += 1
+      /* The first two failed rounds are still covered by the last good reading. */
+      if (cache.payload && cache.fails < MAX_FAILS) {
+        return {
+          ...cache.payload,
+          fetchedAt: now,
+          cached: true,
+          stale: true,
+          error: detail,
+          fails: cache.fails,
+          lastSuccess: cache.lastOk,
+        }
+      }
+      return {
         ok: false,
+        pending: false,
         fetchedAt: now,
         state: 'unknown',
         tone: 'idle',
         headline: 'Status feed unavailable',
-        detail: error && error.message ? error.message : String(error),
+        detail,
         updated: 0,
         entry: null,
         incidents: [],
+        stale: Boolean(cache.payload),
+        error: detail,
+        fails: cache.fails,
+        lastSuccess: cache.lastOk,
       }
-      /* Keep a stale answer warm so a transient network blip does not grey the dot. */
-      if (cache.payload) return { ...cache.payload, stale: true, error: payload.detail }
-      cache.at = now
-      cache.payload = payload
-      return payload
     } finally {
       inflight = null
     }
   })()
   return inflight
+}
+
+async function readStatus(force = false) {
+  const now = Date.now()
+  if (force) return refresh(now)
+  const age = cache.payload ? now - cache.at : Number.POSITIVE_INFINITY
+  /* Three failed rounds in a row: stop presenting the last reading as current. */
+  if (cache.fails >= MAX_FAILS) {
+    refresh(now).catch(() => {})
+    return {
+      ok: false,
+      pending: false,
+      fetchedAt: now,
+      state: 'unknown',
+      tone: 'idle',
+      headline: 'Status feed unavailable',
+      detail: 'no successful reading for ' + Math.round(MAX_FAILS * POLL_MS / 1000) + 's',
+      updated: 0,
+      entry: null,
+      incidents: [],
+      stale: true,
+      fails: cache.fails,
+      lastSuccess: cache.lastOk,
+    }
+  }
+  if (age < CACHE_MS) return cache.payload
+  if (cache.payload) {
+    /* Warm the cache in the background and hand back what we already have. */
+    refresh(now).catch(() => {})
+    return { ...cache.payload, cached: true, lastSuccess: cache.lastOk, fails: cache.fails }
+  }
+  refresh(now).catch(() => {})
+  return pendingStatus()
 }
 
 
@@ -874,6 +952,26 @@ function createRelay() {
       reply(200, found)
       return
     }
+    // JSONP bridge: a <script> tag is not subject to CORS, so a window whose fetch to
+    // loopback is blocked can still read the status through this route.
+    if (url.startsWith('/status.js')) {
+      readStatus(false).then((payload) => {
+        const body = 'window.__dshWsfStatus = ' + JSON.stringify(payload) + ';'
+        const headers = {
+          'content-type': 'application/javascript; charset=utf-8',
+          'content-length': Buffer.byteLength(body),
+          'cache-control': 'no-store',
+        }
+        if (typeof allowOrigin === 'string') headers['access-control-allow-origin'] = allowOrigin
+        response.writeHead(200, headers)
+        response.end(body)
+      }, () => {
+        response.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8' })
+        response.end('window.__dshWsfStatus = null;')
+      })
+      return
+    }
+
     if (url.startsWith('/status')) {
       const force = /[?&]refresh=1/.test(url)
       readStatus(force).then(
@@ -958,7 +1056,35 @@ export function apply(ctx) {
     }, () => {})
   }
 
-  if (ctx && typeof ctx.effect === 'function') ctx.effect(() => dispose)
-  else return dispose
+  /**
+   * Keep a reading warm on our own cadence. The feed caches upstream for 60s and
+   * every fetch is a conditional GET, so this costs one cheap request a minute
+   * while the app runs — in exchange an expired reading becomes a rare sight.
+   */
+  let warmer = null
+  const warm = () => {
+    if (closed) return
+    refresh(Date.now()).catch(() => {})
+  }
+  const startWarmer = () => {
+    warm()
+    warmer = setInterval(warm, POLL_MS)
+    if (warmer && typeof warmer.unref === 'function') warmer.unref()
+  }
+  const stopWarmer = () => {
+    if (warmer) {
+      clearInterval(warmer)
+      warmer = null
+    }
+  }
+  boot.then(() => { if (!closed && server) startWarmer() }, () => {})
+
+  const disposeAll = () => {
+    stopWarmer()
+    dispose()
+  }
+
+  if (ctx && typeof ctx.effect === 'function') ctx.effect(() => disposeAll)
+  else return disposeAll
   return undefined
 }

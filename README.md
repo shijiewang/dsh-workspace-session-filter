@@ -53,6 +53,9 @@
   <https://status.deepseek.com/> 看详情。数据来自该站点的 Atom feed：中继每分钟做一次
   条件 GET（带 `ETag`，未变化时上游回 304，直接复用上次解析结果），界面同样每分钟取一次；
   整条链路由插件的 Host 半边经 `127.0.0.1` 的小中继交给界面（原因见下方「实现要点」）。
+  中继冷启动时先回一个 `pending` 应答，界面因此不会卡在首帧超时；连续 3 次抓取失败才判灰，
+  此前一直沿用最后一次成功的数据，并在卡片里写明「上次成功刷新」与失败次数。若界面 `fetch`
+  到本机端口被挡，会自动降级用 `<script>` 取 `GET /status.js`（JSONP，不受 CORS 约束）。
 - **按工作区分组**：组标题是工作区名（没有名字时退化成目录名），组内按最近活动倒序；
   不属于任何工作区的会话归到末尾的「未分组」组。
 - **一眼可见的状态**：每行左侧状态点复刻内置 `StateDot`（运行中是旋转描边环，其余是
@@ -160,14 +163,20 @@ dsh plugin --profile desktop remove dsh-workspace-session-filter
 - **数据来源**：`main` slot 提供的标准 props — `useSessions`（会话快照）、
   `useWorkspaces`（工作区快照）、`useSessionStatus`（状态 Map），全部是
   `SnapshotSelectorHook`，必须传 selector。
+- **筛选弹层**：宽度上限 360px、按可用空间自适应（`place()` 里算 `ceiling`/`width`/`left`
+  并夹进视口），只有标题超长才省略；chip 上另有一层捕获阶段的几何命中兜底，透明覆盖层
+  压在上面时也能打开。
 - **样式**：只用 `--dsw-alias-*` / `--dsw-*` 设计令牌，数值对齐内置列表页
   （960px 内容宽、`clamp(24px,4vw,48px)` 内边距、28px chip、32px 行高、菜单 4px 内衬
   + `--dsw-elevation-prominent`），类名前缀 `dwsf-`。
 - **服务状态为什么要绕一圈**：`status.deepseek.com` 的响应没有任何 CORS 头，bundle 的
   Client 半边也拿不到 `host.call`（那是动态包的桥），所以 `index.js`（Host 半边，真 Node）
   在 `127.0.0.1:47100`–`47105` 里挑一个空闲端口起只读中继，缓存 60 秒；界面轮询它，取不到就
-  老老实实显示灰点。系统 DNS 对 `status.deepseek.com` 会返回备案拦截页的地址，中继在直连
+  老老实实显示灰点，并把底层原因（连不上中继 / 中继回 4xx / `TypeError: Failed to fetch`）
+  写在卡片里。系统 DNS 对 `status.deepseek.com` 会返回备案拦截页的地址，中继在直连
   失败时改用 DNS-over-HTTPS（`1.1.1.1` / `8.8.8.8` / `223.5.5.5`）拿到真实 IP 再带 SNI 请求。
+  同一台机器上可能同时存在多个中继（例如另开过一个 `dsh web`），界面按载荷里有没有
+  `pending` / `fails` / `lastSuccess` 区分新旧契约，优先选新契约的那个。
 - **未读的判定**：两个来源叠加 —— ① 状态 Map 里的 `completionUnread`（内置列表画完成点的
   同一个信号，覆盖"跑完没看"）；② 本插件自己记的"最后查看时间表"，存 `localStorage`
   （key `dsh-workspace-session-filter:seen.v1`），会话 `updatedAt` 比它新就算有新内容。

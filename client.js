@@ -89,7 +89,7 @@ window.__ModuleLoader__.load({
       'manage.digestMeta': '{size} · {time}',
       'manage.missing': ' ({n} session directories were not found and were skipped)',
       'manage.missing': '（{n} 个会话找不到目录，已跳过）',
-      'status.pollNote': '每分钟订阅一次 feed（上游缓存 60 秒）',
+      'status.pollNote': '自检每 60 秒一次，命中 ETag 时复用上次结果（上游缓存 60 秒）',
       'status.recentNone': '近期没有故障记录',
       'incident.resolved': '已恢复',
       'incident.monitoring': '观察中',
@@ -98,6 +98,15 @@ window.__ModuleLoader__.load({
       'incident.maintenance': '维护中',
       'incident.unknown': '未知状态',
       'status.offline': '本地状态中继未运行，读不到 status.deepseek.com',
+      'status.checking': '正在检测',
+      'status.reasonRelay': '本机 127.0.0.1:47100–47105 都没有响应：Host 半边未加载，需重启应用',
+      'status.reasonFeed': '中继在运行，但暂时取不到 status.deepseek.com',
+      'status.lastOk': '上次成功刷新 {t}',
+      'status.lastOkNever': '还没有成功刷新过',
+      'status.lastOkAgo': '{n} 分钟前',
+      'status.fails': '连续 {n} 次失败，仍在使用最后一次成功的数据',
+      'status.refresh': '立即刷新',
+      'status.refreshing': '刷新中…',
       'settings.nav': '在左侧导航显示',
       'settings.on': '已开启',
       'settings.off': '已关闭',
@@ -193,7 +202,7 @@ window.__ModuleLoader__.load({
       'manage.digestsClose': 'Close the digest column',
       'manage.digestsBack': 'Back to list',
       'manage.digestMeta': '{size} · {time}',
-      'status.pollNote': 'Polls the feed once a minute (upstream caches 60s)',
+      'status.pollNote': 'Checks once a minute, reusing the ETag result upstream caches for 60s',
       'status.recentNone': 'No incidents on record',
       'incident.resolved': 'Resolved',
       'incident.monitoring': 'Monitoring',
@@ -202,6 +211,15 @@ window.__ModuleLoader__.load({
       'incident.maintenance': 'Maintenance',
       'incident.unknown': 'Unknown',
       'status.offline': 'The local status relay is not running, so status.deepseek.com cannot be read',
+      'status.checking': 'Checking',
+      'status.reasonRelay': 'Nothing answered on 127.0.0.1:47100–47105 — the Host half is not loaded; restart the app',
+      'status.reasonFeed': 'The relay is up but status.deepseek.com could not be reached',
+      'status.lastOk': 'Last successful check {t}',
+      'status.lastOkNever': 'Never checked successfully',
+      'status.lastOkAgo': '{n} min ago',
+      'status.fails': '{n} failed checks in a row — still showing the last good reading',
+      'status.refresh': 'Refresh now',
+      'status.refreshing': 'Refreshing…',
       'settings.nav': 'Show in the left navigation',
       'settings.on': 'On',
       'settings.off': 'Off',
@@ -896,6 +914,19 @@ window.__ModuleLoader__.load({
     }
 
     /** Workspace-grouped session rows, shared by the panel and the sidebar popover. */
+    /** A circular arrow, used by the manual "refresh now" control. */
+    function RefreshGlyph(props) {
+      const size = props && props.size ? props.size : 12
+      return h('svg', {
+        width: size, height: size, viewBox: '0 0 16 16', fill: 'none',
+        stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round',
+        'aria-hidden': 'true',
+      },
+        h('path', { d: 'M13.2 8a5.2 5.2 0 1 1-1.7-3.86' }),
+        h('path', { d: 'M13.4 2.2v3.2h-3.2' })
+      )
+    }
+
     function Groups(props) {
       const { view, t, now, onOpen, managing, picked, onToggle } = props
       if (view.groups.length === 0) {
@@ -1531,6 +1562,11 @@ window.__ModuleLoader__.load({
      * ------------------------------------------------------------------ */
     const STATUS_PORTS = [47100, 47101, 47102, 47103, 47104, 47105]
     const STATUS_POLL_MS = 60_000
+    /* A cold relay may still be fetching the feed, so allow a slow first answer. */
+    /* Stamped by hand so a screenshot tells us which copy of the module is live. */
+    const CLIENT_BUILD = '2026-11-19 10:12'
+    const STATUS_TIMEOUT_MS = 6_000
+    const STATUS_RETRY_MS = 3_000
     let statusPort = null
 
     /* Several DSH processes can run at once (the desktop app plus `dsh web`),
@@ -1646,51 +1682,198 @@ window.__ModuleLoader__.load({
       throw lastError || new Error('relay unavailable')
     }
 
-    async function readServiceStatus() {
+    /* Probe every sibling port at once. Walking them one by one burns the whole
+       timeout on each dead port, so a restart that moved the relay would leave the
+       dot grey for half a minute before anything could show up. */
+    async function probeRelay() {
       if (typeof fetch !== 'function') return null
-      const ports = statusPort === null ? STATUS_PORTS : [statusPort]
-      for (const port of ports) {
+      const attempts = STATUS_PORTS.map((port) => {
         const controller = typeof AbortController === 'function' ? new AbortController() : null
-        const timer = controller ? setTimeout(() => controller.abort(), 2500) : null
-        try {
-          const response = await fetch(`http://127.0.0.1:${port}/status`, controller
-            ? { signal: controller.signal, cache: 'no-store' }
-            : { cache: 'no-store' })
-          if (timer) clearTimeout(timer)
-          if (!response || !response.ok) continue
-          const data = await response.json()
-          if (data && typeof data === 'object') {
-            statusPort = port
-            return data
-          }
-        } catch (error) {
-          if (timer) clearTimeout(timer)
+        const timer = controller ? setTimeout(() => controller.abort(), 1_200) : null
+        const options = controller ? { signal: controller.signal, cache: 'no-store' } : { cache: 'no-store' }
+        return fetch(`http://127.0.0.1:${port}/health`, options)
+          .then((response) => (response && response.ok ? port : null))
+          .catch(() => null)
+          .finally(() => { if (timer) clearTimeout(timer) })
+      })
+      const found = await Promise.all(attempts)
+      const hit = found.filter((port) => port !== null)
+      return hit.length > 0 ? hit[0] : null
+    }
+
+    async function requestStatus(port, force) {
+      const controller = typeof AbortController === 'function' ? new AbortController() : null
+      /* A forced refresh waits for the relay's own fetch, so give it more room. */
+      const budget = force ? STATUS_TIMEOUT_MS * 2 : STATUS_TIMEOUT_MS
+      const timer = controller ? setTimeout(() => controller.abort(), budget) : null
+      const options = controller ? { signal: controller.signal, cache: 'no-store' } : { cache: 'no-store' }
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/status${force ? '?refresh=1' : ''}`, options)
+        if (timer) clearTimeout(timer)
+        if (!response || !response.ok) {
+          relayError = `HTTP ${response ? response.status : 'no response'} on 127.0.0.1:${port}`
+          return null
+        }
+        const data = await response.json()
+        return data && typeof data === 'object' ? data : null
+      } catch (error) {
+        if (timer) clearTimeout(timer)
+        relayError = `${error && error.name ? error.name : 'Error'}: ${error && error.message ? error.message : String(error)}`
+        return null
+      }
+    }
+
+    /* A relay left behind by an older copy of this plugin answers on its own port too,
+       but its payload predates `pending` / `lastSuccess` / `fails`. Prefer the relay that
+       speaks the current shape, otherwise the card can only say "never refreshed". */
+    function relayContract(data) {
+      if (!data || typeof data !== 'object') return 0
+      if (typeof data.fails === 'number' || 'lastSuccess' in data || 'pending' in data) return 2
+      return 1
+    }
+
+    let staleRelayRetryAt = 0
+    /* Last transport failure, surfaced in the card: without it a grey dot gives a
+       human nothing to act on ("Failed to fetch" at least names the layer). */
+    let relayError = ''
+
+    async function findCurrentRelay(avoid) {
+      const ports = STATUS_PORTS.filter((port) => port !== avoid)
+      let fallback = null
+      for (const port of ports) {
+        const data = await requestStatus(port, false)
+        if (!data) continue
+        if (relayContract(data) >= 2) {
+          statusPort = port
+          return data
+        }
+        if (fallback === null) fallback = data
+      }
+      return fallback
+    }
+
+    /* Insurance for a window whose fetch to loopback is blocked by the browser
+       (CORS/PNA quirks in some Electron builds): a <script> tag is not subject to
+       CORS, and the relay answers /status.js with `window.__dshWsfStatus = {...}`. */
+    function loadStatusScript(port) {
+      return new Promise((resolve) => {
+        if (typeof document === 'undefined' || !document.head) {
+          resolve(null)
+          return
+        }
+        const key = '__dshWsfStatus'
+        const script = document.createElement('script')
+        let settled = false
+        const finish = (value) => {
+          if (settled) return
+          settled = true
+          script.remove()
+          try { delete window[key] } catch (error) { /* non-configurable: ignore */ }
+          resolve(value && typeof value === 'object' ? value : null)
+        }
+        script.async = true
+        script.src = `http://127.0.0.1:${port}/status.js?t=${Date.now()}`
+        script.onload = () => finish(window[key])
+        script.onerror = () => finish(null)
+        setTimeout(() => finish(null), 4_000)
+        document.head.appendChild(script)
+      })
+    }
+
+    async function readStatusByScript() {
+      for (const port of STATUS_PORTS) {
+        const data = await loadStatusScript(port)
+        if (data) {
+          statusPort = port
+          return data
         }
       }
       return null
     }
 
+    async function readServiceStatus(force) {
+      if (typeof fetch !== 'function') return null
+      if (statusPort !== null) {
+        const data = await requestStatus(statusPort, force)
+        /* Only a stale relay when a fresher one may exist: switch, but never block the
+           card while doing it. Retry the wider scan at most every five minutes. */
+        if (data && relayContract(data) >= 2) return data
+        if (data && Date.now() >= staleRelayRetryAt) {
+          staleRelayRetryAt = Date.now() + 300_000
+          const better = await findCurrentRelay(statusPort)
+          if (better && relayContract(better) >= 2) return better
+          return data
+        }
+        if (data) return data
+        statusPort = null
+        const viaScript = await readStatusByScript()
+        if (viaScript) return viaScript
+      }
+      const found = await findCurrentRelay(null)
+      if (found) return found
+      const direct = await requestStatus(STATUS_PORTS[0], force)
+      if (direct) return direct
+      return readStatusByScript()
+    }
+
     function useServiceStatus() {
       const [info, setInfo] = useState(null)
       const [gone, setGone] = useState(false)
+      const [reason, setReason] = useState(null)
+      const [refreshing, setRefreshing] = useState(false)
+      const [why, setWhy] = useState('')
       useEffect(() => {
         let alive = true
         let timer = null
+        const schedule = (delay) => {
+          if (!alive) return
+          timer = setTimeout(tick, delay)
+        }
         const tick = () => {
           readServiceStatus().then((next) => {
             if (!alive) return
-            if (next === null) setGone(true)
-            else {
-              setGone(false)
-              setInfo(next)
+            if (next === null) {
+              /* No relay answered: say so, and retry soon instead of in a minute. */
+              setGone(true)
+              setReason('relay')
+              setWhy(relayError)
+              schedule(STATUS_RETRY_MS)
+              return
             }
-          }, () => { if (alive) setGone(true) })
+            setGone(false)
+            setInfo(next)
+            setReason(next.pending ? null : (next.ok === false || next.state === 'unknown') ? 'feed' : null)
+            schedule(next.pending ? STATUS_RETRY_MS : STATUS_POLL_MS)
+          }, () => {
+            if (!alive) return
+            setGone(true)
+            setReason('relay')
+            schedule(STATUS_RETRY_MS)
+          })
         }
         tick()
-        timer = setInterval(tick, STATUS_POLL_MS)
-        return () => { alive = false; if (timer) clearInterval(timer) }
+        return () => { alive = false; if (timer) clearTimeout(timer) }
       }, [])
-      return { info, gone }
+      /* Manual refresh: ask the relay to fetch now and fold the answer in. */
+      const refreshNow = () => {
+        setRefreshing(true)
+        readServiceStatus(true).then((next) => {
+          setRefreshing(false)
+          if (next === null) {
+            setGone(true)
+            setReason('relay')
+            return
+          }
+          setGone(false)
+          setReason(next.pending ? null : (next.ok === false || next.state === 'unknown') ? 'feed' : null)
+          setInfo(next)
+        }, () => {
+          setRefreshing(false)
+          setGone(true)
+          setReason('relay')
+        })
+      }
+      return { info, gone, reason, why, refreshNow, refreshing }
     }
 
     function clockOf(stamp) {
@@ -1753,14 +1936,31 @@ window.__ModuleLoader__.load({
 
     function ServiceStatus(props) {
       const t = props.t
-      const { info, gone } = useServiceStatus()
+      const { info, gone, reason, why, refreshNow, refreshing } = useServiceStatus()
       const [hover, setHover] = useState(false)
       const [spot, setSpot] = useState(null)
-      const state = gone || !info ? 'unknown' : (info.state || 'unknown')
+      /**
+       * The card floats above the button, so a plain mouseleave would unmount it
+       * while the pointer crosses the gap — closing it before anyone can click the
+       * refresh control inside. Hold it open for a moment instead.
+       */
+      const holdTimer = useRef(null)
+      const keepOpen = (node) => {
+        if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null }
+        if (node) place(node)
+        setHover(true)
+      }
+      const closeSoon = () => {
+        if (holdTimer.current) clearTimeout(holdTimer.current)
+        holdTimer.current = setTimeout(() => { holdTimer.current = null; setHover(false) }, 220)
+      }
+      useEffect(() => () => { if (holdTimer.current) clearTimeout(holdTimer.current) }, [])
+      const state = gone || !info ? 'unknown' : info.pending ? 'checking' : (info.state || 'unknown')
       const stateLabel = state === 'ok' ? t('status.serviceOk')
         : state === 'degraded' ? t('status.serviceDegraded')
           : state === 'down' ? t('status.serviceDown')
-            : t('status.serviceUnknown')
+            : state === 'checking' ? t('status.checking')
+              : t('status.serviceUnknown')
       const name = `${t('status.service')} · ${stateLabel}`
       const open = () => {
         try { window.open('https://status.deepseek.com/', '_blank', 'noopener,noreferrer') } catch (error) { /* popup blocked */ }
@@ -1784,20 +1984,43 @@ window.__ModuleLoader__.load({
             className: 'dwsf-statusCard',
             role: 'tooltip',
             style: { left: `${spot.left}px`, bottom: `${spot.bottom}px`, width: `${spot.width}px` },
+            onMouseEnter: () => keepOpen(),
+            onMouseLeave: closeSoon,
           },
             h('div', { className: 'dwsf-statusHead' },
               h('span', { className: 'dwsf-statusDot', 'data-state': state, 'aria-hidden': 'true' }),
-              h('span', { className: 'dwsf-statusName' }, name)
+              h('span', { className: 'dwsf-statusName' }, name),
+              h('button', {
+                type: 'button',
+                className: 'dwsf-statusRefresh',
+                'data-busy': refreshing ? 'true' : 'false',
+                title: t('status.refresh'),
+                'aria-label': t('status.refresh'),
+                onClick: (event) => { event.stopPropagation(); refreshNow() },
+              }, h(RefreshGlyph, { size: 12 }))
             ),
             info ? (info.headline ? h('div', { className: 'dwsf-statusLine' }, info.headline) : null) : null,
             info && info.state !== 'ok' && info.detail
               ? h('div', { className: 'dwsf-statusLine' }, info.detail)
               : null,
-            info ? null : h('div', { className: 'dwsf-statusLine' }, t('status.offline')),
+            info ? null : h('div', { className: 'dwsf-statusLine' },
+              reason === 'relay' ? t('status.reasonRelay')
+                : reason === 'feed' ? t('status.reasonFeed')
+                  : t('status.offline')),
+            !info && why ? h('div', { className: 'dwsf-statusMeta dwsf-statusWarn' }, why) : null,
+            info && info.pending ? h('div', { className: 'dwsf-statusLine' }, t('status.checking')) : null,
             info ? recentIncidents(info, t) : null,
-            info && info.updated
-              ? h('div', { className: 'dwsf-statusMeta' }, info.stale ? t('status.stale') : t('status.updated', { t: clockOf(info.updated) }))
+            info
+              ? h('div', { className: 'dwsf-statusMeta' },
+                  refreshing ? t('status.refreshing')
+                    : info.lastSuccess
+                      ? `${t('status.lastOk', { t: clockOf(info.lastSuccess) })} · ${t('status.lastOkAgo', { n: Math.max(0, Math.round((Date.now() - info.lastSuccess) / 60000)) })}`
+                      : t('status.lastOkNever'))
               : null,
+            info && info.fails > 0
+              ? h('div', { className: 'dwsf-statusMeta dwsf-statusWarn' }, t('status.fails', { n: info.fails }))
+              : info && info.stale ? h('div', { className: 'dwsf-statusMeta' }, t('status.stale')) : null,
+            h('div', { className: 'dwsf-statusMeta' }, 'dsh-workspace-session-filter \u00b7 ' + CLIENT_BUILD),
             h('div', { className: 'dwsf-statusMeta' }, t('status.pollNote')),
             h('div', { className: 'dwsf-statusMeta' }, t('status.openSite'))
           )
@@ -1811,10 +2034,10 @@ window.__ModuleLoader__.load({
           'aria-describedby': undefined,
           title: name,
           onClick: open,
-          onMouseEnter: (event) => { place(event.currentTarget); setHover(true) },
-          onMouseLeave: () => setHover(false),
-          onFocus: (event) => { place(event.currentTarget); setHover(true) },
-          onBlur: () => setHover(false),
+          onMouseEnter: (event) => keepOpen(event.currentTarget),
+          onMouseLeave: closeSoon,
+          onFocus: (event) => keepOpen(event.currentTarget),
+          onBlur: closeSoon,
         },
           h('span', { className: 'dwsf-statusDot', 'data-state': state, 'aria-hidden': 'true' })
         ),
@@ -1848,9 +2071,26 @@ window.__ModuleLoader__.load({
           return
         }
         const rect = node.getBoundingClientRect()
-        setAnchor(wide
-          ? { left: Math.round(rect.left), bottom: Math.round(window.innerHeight - rect.top + 8) }
-          : { left: Math.round(rect.right + 8), bottom: Math.round(window.innerHeight - rect.bottom) })
+        /* A zero rect means the bar is mounted but not laid out (a hidden copy, or a
+           detached mount): anchor to the bottom-left corner instead of off-screen. */
+        if (!rect.width && !rect.height) {
+          setAnchor({ left: 24, bottom: 120, width: 320 })
+          return
+        }
+        // A fixed popover is only clipped by the window itself, so clamp both edges:
+        // anchored at a narrow rail or a right-docked sidebar, `left` alone can push
+        // the right half of every row off-screen. React turns these numbers into px.
+        const viewport = window.innerWidth
+        const bottom = Math.round(wide
+          ? window.innerHeight - rect.top + 8
+          : window.innerHeight - rect.bottom)
+        // The popover may cross the sidebar edge and float over the main column: take
+        // the width that fits up to 360px, and only clamp the window's own edge.
+        const preferred = wide ? rect.left : rect.right + 8
+        const ceiling = Math.min(360, viewport - 16)
+        const width = Math.round(Math.max(200, Math.min(ceiling, viewport - preferred - 8)))
+        const left = Math.round(Math.min(Math.max(8, preferred), Math.max(8, viewport - width - 8)))
+        setAnchor({ left, bottom, width })
       }
 
       useEffect(() => {
@@ -1880,6 +2120,33 @@ window.__ModuleLoader__.load({
           document.removeEventListener('keydown', onKeyDown, true)
         }
       }, [open])
+
+      /* Some sidebar builds paint another footer entry (or a transparent hit layer)
+         over the bar, so a chip can be visible yet never receive its own click. A
+         capture-phase hit test on the chips' boxes keeps the bar usable regardless:
+         it only acts when the real target is outside this entry. */
+      useEffect(() => {
+        if (typeof document === 'undefined') return undefined
+        const onPointerDown = (event) => {
+          const node = rootRef.current
+          if (!node || typeof node.querySelectorAll !== 'function') return
+          const target = event.target
+          if (target && typeof node.contains === 'function' && node.contains(target)) return
+          const chips = node.querySelectorAll('[data-filter]')
+          for (let index = 0; index < chips.length; index += 1) {
+            const rect = chips[index].getBoundingClientRect()
+            if (rect.width <= 0 || rect.height <= 0) continue
+            if (event.clientX < rect.left || event.clientX > rect.right) continue
+            if (event.clientY < rect.top || event.clientY > rect.bottom) continue
+            event.preventDefault()
+            event.stopPropagation()
+            openWith(chips[index].getAttribute('data-filter'))
+            return
+          }
+        }
+        document.addEventListener('pointerdown', onPointerDown, true)
+        return () => document.removeEventListener('pointerdown', onPointerDown, true)
+      }, [open, mode])
 
       const openWith = (nextMode) => {
         if (open && mode === nextMode) {
@@ -1912,6 +2179,7 @@ window.__ModuleLoader__.load({
         key,
         type: 'button',
         className: 'dwsf-footChip',
+        'data-filter': key,
         'data-active': mode === key ? 'true' : 'false',
         'aria-pressed': mode === key ? 'true' : 'false',
         'aria-label': count > 0 ? `${label} \u00b7 ${count}` : label,
@@ -2167,11 +2435,19 @@ window.__ModuleLoader__.load({
 .dwsf-statusButton:hover,.dwsf-statusButton:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}
 .dwsf-statusButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}
 .dwsf-statusDot{flex:0 0 auto;width:8px;height:8px;border-radius:999px;background:var(--dsw-alias-label-caption)}
+.dwsf-statusDot[data-state="checking"]{background:var(--dsw-alias-label-tertiary);animation:dwsf-statusPulse 1.4s ease-in-out infinite}
+@keyframes dwsf-statusPulse{0%,100%{opacity:.45}50%{opacity:1}}
 .dwsf-statusDot[data-state="ok"]{background:var(--dsw-alias-state-success-primary)}
 .dwsf-statusDot[data-state="degraded"]{background:var(--dsw-alias-state-warn-primary)}
 .dwsf-statusDot[data-state="down"]{background:var(--dsw-alias-state-error-primary)}
 .dwsf-statusCard{position:fixed;z-index:80;display:flex;flex-direction:column;gap:3px;max-height:min(72vh,460px);overflow-y:auto;overscroll-behavior:contain;padding:9px 11px;border-radius:10px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);box-shadow:var(--dsw-elevation-prominent);text-align:left}
 .dwsf-statusHead{display:flex;align-items:center;gap:6px}
+.dwsf-statusName{flex:1 1 auto;min-width:0}
+.dwsf-statusRefresh{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:0;border-radius:var(--dsw-radius-sm);background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.dwsf-statusRefresh:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+.dwsf-statusRefresh[data-busy="true"] svg{animation:dwsf-relaySpin .9s linear infinite}
+@keyframes dwsf-relaySpin{to{transform:rotate(360deg)}}
+.dwsf-statusWarn{color:var(--dsw-alias-state-warn-primary)}
 .dwsf-statusName{font-size:12px;line-height:18px;font-weight:500;color:var(--dsw-alias-label-primary)}
 .dwsf-statusLine{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}
 .dwsf-statusMeta{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
@@ -2208,15 +2484,16 @@ window.__ModuleLoader__.load({
 .dwsf-switchTrack[data-on="true"]{background:var(--dsw-alias-brand-primary);box-shadow:none}
 .dwsf-switchThumb{width:16px;height:16px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .16s ease}
 .dwsf-switchTrack[data-on="true"] .dwsf-switchThumb{transform:translateX(14px)}
-.dwsf-pop{position:fixed;z-index:60;display:flex;flex-direction:column;width:min(340px,calc(100vw - 24px));max-height:60vh;border-radius:12px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);overflow:hidden}
+.dwsf-pop{position:fixed;z-index:60;box-sizing:border-box;display:flex;flex-direction:column;width:min(360px,calc(100vw - 16px));max-width:calc(100vw - 16px);max-height:60vh;border-radius:12px;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);--dsw-elevation-stroke-color:var(--dsw-alias-border-l1);box-shadow:var(--dsw-elevation-prominent);overflow:hidden}
 .dwsf-popFoot{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;border-top:.5px solid var(--dsw-alias-border-l2);font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
 .dwsf-popFootLabel{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dwsf-popFootActions{flex:none;display:flex;align-items:center;gap:10px}
 .dwsf-popHead{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:10px 12px 4px}
-.dwsf-popTitle{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:20px}
+.dwsf-popTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:20px}
 .dwsf-popCount{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:16px;font-variant-numeric:tabular-nums}
 .dwsf-popFilters{flex:none;display:flex;padding:0 10px 4px}
 .dwsf-popBody{flex:1;min-height:0;padding:0 8px 10px;overflow:auto;--dsh-scrollbar-width:9px}
+.dwsf-pop,.dwsf-pop *{box-sizing:border-box}
 .dwsf-pop .dwsf-groupHead{padding:10px 8px 4px}
 .dwsf-pop .dwsf-empty{padding:28px 16px}
 .dwsf-manageBar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 12px}

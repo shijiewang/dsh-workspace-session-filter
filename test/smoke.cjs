@@ -112,6 +112,7 @@ const buttonByText = (root, text) => buttonsWithClass(root, 'dwsf-filter').conca
 
 /* --------------------------------- module -------------------------------- */
 const source = fs.readFileSync(FILE, 'utf8')
+const hostSource = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8')
 let spec = null
 const seenStore = new Map()
 const sandbox = {
@@ -391,6 +392,18 @@ const statusButtons = findAll(foot, (n) => n.tag === 'button' && n.props.classNa
 assert.strictEqual(statusButtons.length, 1, 'footer carries the service status dot')
 assert.strictEqual(statusButtons[0].props['data-state'], 'unknown', 'no relay in the sandbox means the grey state')
 assert.ok(String(statusButtons[0].props['aria-label']).includes('DeepSeek 服务状态'))
+assert.ok(String(statusButtons[0].props['aria-label']).includes('状态未知')),
+  'the grey dot announces the unknown state instead of looking healthy'
+assert.ok(source.includes('const STATUS_TIMEOUT_MS = 6_000'), 'the client waits long enough for a cold relay')
+assert.ok(source.includes('STATUS_RETRY_MS'), 'a failed probe retries soon instead of after a full minute')
+assert.ok(source.includes('status.reasonRelay'), 'the grey card names why it is grey')
+assert.ok(hostSource.includes('pendingStatus'), 'the relay answers a cold start instead of blocking on the feed')
+assert.ok(hostSource.includes('const CACHE_MS = 200_000'), 'a reading stays current for 200s (the upstream cache is 60s)')
+assert.ok(hostSource.includes('const POLL_MS = 60_000'), 'the relay warms itself once a minute')
+assert.ok(hostSource.includes('const MAX_FAILS = 3'), 'the dot only admits ignorance after three failed rounds')
+assert.ok(source.includes("'status.lastOk'"), 'the card shows when the reading was last refreshed')
+assert.ok(source.includes('refreshNow'), 'the card offers a manual refresh')
+assert.ok(source.includes('dwsf-statusRefresh'), 'the manual refresh has its own control')
 assert.strictEqual(findAll(foot, (n) => n.props.className === 'dwsf-pop').length, 0, 'popover closed by default')
 
 footChips[0].props.onClick()
